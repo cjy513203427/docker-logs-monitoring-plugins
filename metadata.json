@@ -1,0 +1,10 @@
+{
+  "icon": "icon.svg",
+  "ui": {
+    "dashboard-tab": {
+      "title": "Logs Console",
+      "src": "index.html",
+      "root": "ui"
+    }
+  }
+}
