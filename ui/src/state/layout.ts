@@ -31,7 +31,8 @@ export type LayoutAction =
   | { type: "TOGGLE_TIMESTAMPS"; paneId: string; tabId: string }
   | { type: "TOGGLE_FOLLOWING"; paneId: string; tabId: string }
   | { type: "SET_TAIL_LINES"; paneId: string; tabId: string; tailLines: TailLines }
-  | { type: "SET_PANE_VIEW_MODE"; paneId: string; viewMode: PaneViewMode };
+  | { type: "SET_PANE_VIEW_MODE"; paneId: string; viewMode: PaneViewMode }
+  | { type: "CYCLE_TAB"; paneId: string; direction: "next" | "prev" };
 
 function withPane(state: LayoutState, paneId: string, update: (pane: PaneState) => PaneState): LayoutState {
   return {
@@ -120,6 +121,16 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
 
     case "SET_PANE_VIEW_MODE":
       return withPane(state, action.paneId, (pane) => ({ ...pane, viewMode: action.viewMode }));
+
+    case "CYCLE_TAB":
+      return withPane(state, action.paneId, (pane) => {
+        if (pane.tabs.length === 0) return pane;
+        const currentIndex = pane.tabs.findIndex((t) => t.id === pane.activeTabId);
+        const delta = action.direction === "next" ? 1 : -1;
+        // currentIndex === -1 (nothing active yet) lands on tabs[0] either way
+        const nextIndex = (currentIndex + delta + pane.tabs.length) % pane.tabs.length;
+        return { ...pane, activeTabId: pane.tabs[nextIndex].id };
+      });
 
     default:
       return state;
