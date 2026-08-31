@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { startLogStream } from "../api/containers";
+import type { TailLines } from "../types";
 
 export interface XtermLogHandle {
   clear(): void;
@@ -15,6 +16,7 @@ interface XtermLogProps {
   containerId: string;
   timestamps: boolean;
   following: boolean;
+  tailLines: TailLines;
 }
 
 /**
@@ -24,7 +26,7 @@ interface XtermLogProps {
  * `docker logs -f -t <container>` in a real terminal.
  */
 export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function XtermLog(
-  { containerId, timestamps, following },
+  { containerId, timestamps, following, tailLines },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -94,8 +96,9 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
     };
   }, []);
 
-  // (Re)start the raw `docker logs -f` stream whenever the container or the
-  // timestamp flag changes; always tear the previous process down first.
+  // (Re)start the raw `docker logs -f` stream whenever the container, the
+  // timestamp flag, or the requested history length changes; always tear the
+  // previous process down first.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -103,7 +106,7 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
     term.clear();
     pausedBufferRef.current = [];
 
-    const handle = startLogStream(containerId, { timestamps }, (chunk) => {
+    const handle = startLogStream(containerId, { timestamps, tail: tailLines }, (chunk) => {
       if (followingRef.current) {
         term.write(chunk);
       } else {
@@ -113,7 +116,7 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
 
     return () => handle.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerId, timestamps]);
+  }, [containerId, timestamps, tailLines]);
 
   return <div ref={hostRef} style={{ width: "100%", height: "100%" }} />;
 });

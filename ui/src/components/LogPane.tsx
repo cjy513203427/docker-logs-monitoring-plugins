@@ -1,21 +1,32 @@
 import { useRef, useState } from "react";
-import type { Dispatch } from "react";
+import type { Dispatch, MouseEvent } from "react";
 import Box from "@mui/material/Box";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import InputBase from "@mui/material/InputBase";
 import Typography from "@mui/material/Typography";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemText from "@mui/material/ListItemText";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import CloseIcon from "@mui/icons-material/Close";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
-import type { PaneState } from "../types";
+import ViewListIcon from "@mui/icons-material/ViewList";
+import CallMergeIcon from "@mui/icons-material/CallMerge";
+import type { PaneState, PaneViewMode, TailLines } from "../types";
 import type { LayoutAction } from "../state/layout";
 import { XtermLog, type XtermLogHandle } from "./XtermLog";
+import { MergedLogView } from "./MergedLogView";
+import { colorForContainer } from "../utils/colors";
 
 interface LogPaneProps {
   pane: PaneState;
@@ -23,10 +34,22 @@ interface LogPaneProps {
   dispatch: Dispatch<LayoutAction>;
 }
 
+const TAIL_OPTIONS: { value: TailLines; label: string }[] = [
+  { value: 500, label: "Last 500 lines" },
+  { value: 5000, label: "Last 5,000 lines" },
+  { value: "all", label: "Full history" },
+];
+
 export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
   const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
   const [search, setSearch] = useState("");
   const logRefs = useRef(new Map<string, XtermLogHandle | null>());
+  const [tailMenu, setTailMenu] = useState<{ tabId: string; top: number; left: number } | null>(null);
+
+  const openTailMenu = (e: MouseEvent, tabId: string) => {
+    e.preventDefault();
+    setTailMenu({ tabId, top: e.clientY, left: e.clientX });
+  };
 
   return (
     <Box
@@ -40,37 +63,114 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", borderBottom: 1, borderColor: "divider" }}>
-        <Tabs
-          value={pane.activeTabId ?? false}
-          onChange={(_, tabId) => dispatch({ type: "FOCUS_TAB", paneId: pane.id, tabId })}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ minHeight: 36, flex: 1, minWidth: 0 }}
+        {pane.viewMode === "merged" ? (
+          // No tab is "active" once the content below is every open tab
+          // merged together - a normal Tabs strip would falsely imply one
+          // is selected. A row of removable chips (colored to match their
+          // lines in the merged view) says "these are all included" instead.
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flex: 1, minWidth: 0, px: 1, py: 0.75, overflowX: "auto" }}>
+            {pane.tabs.length === 0 && (
+              <Typography variant="body2" color="text.secondary">
+                No containers in this merge yet
+              </Typography>
+            )}
+            {pane.tabs.map((tab) => (
+              <Chip
+                key={tab.id}
+                size="small"
+                label={tab.containerName}
+                onContextMenu={(e) => openTailMenu(e, tab.id)}
+                onDelete={() => dispatch({ type: "CLOSE_TAB", paneId: pane.id, tabId: tab.id })}
+                sx={{
+                  bgcolor: colorForContainer(tab.containerId),
+                  color: "#fff",
+                  flexShrink: 0,
+                  "& .MuiChip-deleteIcon": { color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" } },
+                }}
+              />
+            ))}
+          </Stack>
+        ) : (
+          <Tabs
+            value={pane.activeTabId ?? false}
+            onChange={(_, tabId) => dispatch({ type: "FOCUS_TAB", paneId: pane.id, tabId })}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ minHeight: 36, flex: 1, minWidth: 0 }}
+          >
+            {pane.tabs.map((tab) => (
+              <Tab
+                key={tab.id}
+                value={tab.id}
+                onContextMenu={(e) => openTailMenu(e, tab.id)}
+                sx={{ minHeight: 36, py: 0, textTransform: "none" }}
+                label={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    <span>{tab.containerName}</span>
+                    <CloseIcon
+                      fontSize="inherit"
+                      sx={{ ml: 0.5, "&:hover": { opacity: 0.7 } }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dispatch({ type: "CLOSE_TAB", paneId: pane.id, tabId: tab.id });
+                      }}
+                    />
+                  </Box>
+                }
+              />
+            ))}
+          </Tabs>
+        )}
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={pane.viewMode}
+          onChange={(_, value: PaneViewMode | null) =>
+            value && dispatch({ type: "SET_PANE_VIEW_MODE", paneId: pane.id, viewMode: value })
+          }
+          sx={{ mr: 0.5, flexShrink: 0 }}
         >
-          {pane.tabs.map((tab) => (
-            <Tab
-              key={tab.id}
-              value={tab.id}
-              sx={{ minHeight: 36, py: 0, textTransform: "none" }}
-              label={
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <span>{tab.containerName}</span>
-                  <CloseIcon
-                    fontSize="inherit"
-                    sx={{ ml: 0.5, "&:hover": { opacity: 0.7 } }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      dispatch({ type: "CLOSE_TAB", paneId: pane.id, tabId: tab.id });
-                    }}
-                  />
-                </Box>
-              }
-            />
-          ))}
-        </Tabs>
+          <ToggleButton value="tabs">
+            <Tooltip title="One terminal per tab">
+              <ViewListIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+          <ToggleButton value="merged">
+            <Tooltip title="Merge open tabs into one time-ordered stream">
+              <CallMergeIcon fontSize="small" />
+            </Tooltip>
+          </ToggleButton>
+        </ToggleButtonGroup>
       </Box>
 
-      {activeTab ? (
+      <Menu
+        open={tailMenu !== null}
+        onClose={() => setTailMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={tailMenu ? { top: tailMenu.top, left: tailMenu.left } : undefined}
+      >
+        {TAIL_OPTIONS.map((opt) => {
+          const tab = pane.tabs.find((t) => t.id === tailMenu?.tabId);
+          return (
+            <MenuItem
+              key={opt.value}
+              selected={tab?.tailLines === opt.value}
+              onClick={() => {
+                if (tailMenu) {
+                  dispatch({ type: "SET_TAIL_LINES", paneId: pane.id, tabId: tailMenu.tabId, tailLines: opt.value });
+                }
+                setTailMenu(null);
+              }}
+            >
+              <ListItemText primary={opt.label} />
+            </MenuItem>
+          );
+        })}
+      </Menu>
+
+      {pane.viewMode === "merged" ? (
+        <MergedLogView tabs={pane.tabs} />
+      ) : activeTab ? (
         <>
           <Box
             sx={{
@@ -104,6 +204,11 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
               <IconButton size="small" onClick={() => logRefs.current.get(activeTab.id)?.clear()}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
+            </Tooltip>
+            <Tooltip title="Right-click a tab to load more history">
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                {activeTab.tailLines === "all" ? "full history" : `last ${activeTab.tailLines}`}
+              </Typography>
             </Tooltip>
 
             <Box
@@ -147,6 +252,7 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
                   containerId={tab.containerId}
                   timestamps={tab.timestamps}
                   following={tab.following}
+                  tailLines={tab.tailLines}
                 />
               </Box>
             ))}

@@ -5,6 +5,7 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { App } from "./components/App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { cleanupOrphanedLogStreams } from "./api/containers";
 
 // `@docker/docker-mui-theme`'s `DockerMuiThemeProvider` reads its palette off
 // a `window.__ddMuiV5Themes` global that Docker Desktop's host page doesn't
@@ -15,6 +16,15 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 function Root() {
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)", { noSsr: true });
   const theme = React.useMemo(() => createTheme({ palette: { mode: prefersDark ? "dark" : "light" } }), [prefersDark]);
+
+  // Once, on startup: sweep up any `docker logs -f` processes orphaned by a
+  // previous session that didn't shut down cleanly (see
+  // cleanupOrphanedLogStreams for why that's a real risk here). Runs from an
+  // effect - after mount, not at module load - for the same reason ddClient
+  // access is lazy: don't gate the whole panel's first paint on it.
+  React.useEffect(() => {
+    cleanupOrphanedLogStreams();
+  }, []);
 
   return (
     <ThemeProvider theme={theme}>

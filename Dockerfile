@@ -14,4 +14,6 @@ LABEL org.opencontainers.image.title="Logs Console" \
 
 COPY metadata.json .
 COPY icon.svg .
+COPY host/ /
+RUN chmod +x /darwin/kill-orphaned-logs.sh /linux/kill-orphaned-logs.sh
 COPY --from=client-builder /ui/dist ui

@@ -1,4 +1,4 @@
-import type { ContainerInfo, LayoutState, PaneLayout, PaneState, TabState } from "../types";
+import type { ContainerInfo, LayoutState, PaneLayout, PaneState, PaneViewMode, TabState, TailLines } from "../types";
 
 let idCounter = 0;
 function nextId(prefix: string): string {
@@ -7,7 +7,7 @@ function nextId(prefix: string): string {
 }
 
 function emptyPane(): PaneState {
-  return { id: nextId("pane"), tabs: [], activeTabId: null };
+  return { id: nextId("pane"), tabs: [], activeTabId: null, viewMode: "tabs" };
 }
 
 const PANE_COUNT: Record<PaneLayout, number> = {
@@ -29,7 +29,9 @@ export type LayoutAction =
   | { type: "FOCUS_TAB"; paneId: string; tabId: string }
   | { type: "FOCUS_PANE"; paneId: string }
   | { type: "TOGGLE_TIMESTAMPS"; paneId: string; tabId: string }
-  | { type: "TOGGLE_FOLLOWING"; paneId: string; tabId: string };
+  | { type: "TOGGLE_FOLLOWING"; paneId: string; tabId: string }
+  | { type: "SET_TAIL_LINES"; paneId: string; tabId: string; tailLines: TailLines }
+  | { type: "SET_PANE_VIEW_MODE"; paneId: string; viewMode: PaneViewMode };
 
 function withPane(state: LayoutState, paneId: string, update: (pane: PaneState) => PaneState): LayoutState {
   return {
@@ -72,6 +74,7 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
         containerName: action.container.name,
         timestamps: true,
         following: true,
+        tailLines: 500,
       };
       return {
         ...withPane(state, pane.id, (p) => ({ ...p, tabs: [...p.tabs, tab], activeTabId: tab.id })),
@@ -108,6 +111,15 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
         ...pane,
         tabs: pane.tabs.map((t) => (t.id === action.tabId ? { ...t, following: !t.following } : t)),
       }));
+
+    case "SET_TAIL_LINES":
+      return withPane(state, action.paneId, (pane) => ({
+        ...pane,
+        tabs: pane.tabs.map((t) => (t.id === action.tabId ? { ...t, tailLines: action.tailLines } : t)),
+      }));
+
+    case "SET_PANE_VIEW_MODE":
+      return withPane(state, action.paneId, (pane) => ({ ...pane, viewMode: action.viewMode }));
 
     default:
       return state;
