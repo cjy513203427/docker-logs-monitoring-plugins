@@ -1,5 +1,5 @@
 IMAGE=local/docker-logs-console
-TAG=0.1.0
+TAG=0.2.0
 
 .PHONY: build install update remove validate dev-debug dev-ui reset-dev help
 
