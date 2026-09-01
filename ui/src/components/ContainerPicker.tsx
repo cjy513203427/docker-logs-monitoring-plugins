@@ -9,6 +9,8 @@ import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import Collapse from "@mui/material/Collapse";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -23,6 +25,8 @@ interface ContainerPickerProps {
 }
 
 const STANDALONE_GROUP_KEY = "";
+
+type StatusFilter = "all" | "running" | "stopped";
 
 interface ContainerGroup {
   key: string;
@@ -58,6 +62,7 @@ function groupByComposeProject(containers: ContainerInfo[]): ContainerGroup[] {
 export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProps) {
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [filter, setFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -82,10 +87,14 @@ export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProp
     return () => watch.close();
   }, []);
 
+  const runningCount = containers.filter((c) => c.state === "running").length;
+
   const filtered = containers.filter((c) => {
     const q = filter.trim().toLowerCase();
-    if (!q) return true;
-    return c.name.toLowerCase().includes(q) || c.image.toLowerCase().includes(q);
+    const matchesText = !q || c.name.toLowerCase().includes(q) || c.image.toLowerCase().includes(q);
+    const isRunning = c.state === "running";
+    const matchesStatus = statusFilter === "all" || (statusFilter === "running" ? isRunning : !isRunning);
+    return matchesText && matchesStatus;
   });
 
   const groups = groupByComposeProject(filtered);
@@ -127,6 +136,19 @@ export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProp
           </IconButton>
         </Tooltip>
       </Box>
+
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        fullWidth
+        value={statusFilter}
+        onChange={(_, value: StatusFilter | null) => value && setStatusFilter(value)}
+        sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: "divider", "& .MuiToggleButton-root": { fontSize: 11, py: 0.25 } }}
+      >
+        <ToggleButton value="all">All ({containers.length})</ToggleButton>
+        <ToggleButton value="running">Running ({runningCount})</ToggleButton>
+        <ToggleButton value="stopped">Stopped ({containers.length - runningCount})</ToggleButton>
+      </ToggleButtonGroup>
 
       <List dense sx={{ overflowY: "auto", flex: 1 }}>
         {loading && (

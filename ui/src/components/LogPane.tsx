@@ -239,10 +239,14 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Right-click a tab to load more history">
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                {activeTab.tailLines === "all" ? "full history" : `last ${activeTab.tailLines}`}
-              </Typography>
+            <Tooltip title="How much history this tab loaded - click to change">
+              <Chip
+                size="small"
+                variant="outlined"
+                label={activeTab.tailLines === "all" ? "full history" : `last ${activeTab.tailLines}`}
+                onClick={(e) => openTailMenu(e, activeTab.id)}
+                sx={{ ml: 0.5, fontSize: 11, "& .MuiChip-label": { px: 1 } }}
+              />
             </Tooltip>
 
             <Box
