@@ -9,6 +9,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import type { TabState } from "../types";
 import { startLogStream } from "../api/containers";
 import { colorForContainer } from "../utils/colors";
+import { useTerminalTheme } from "../state/TerminalThemeContext";
 
 interface MergedLogViewProps {
   tabs: TabState[];
@@ -56,6 +57,14 @@ export function MergedLogView({ tabs }: MergedLogViewProps) {
   const lineCounterRef = useRef(0);
   const followingRef = useRef(following);
   followingRef.current = following;
+  const { preset: themePreset } = useTerminalTheme();
+  // "Classic" is xterm.js's own historical default (pure black) - it's a
+  // terminal-fidelity concern that doesn't apply here, since this view was
+  // already a deliberate departure from raw-terminal rendering (see the doc
+  // comment above). Only the softer, purpose-built presets propagate here,
+  // so picking one applies consistently across tabs and merged mode without
+  // forcing this view to black by default.
+  const themedColors = themePreset.id === "classic" ? null : { bg: themePreset.previewBg, fg: themePreset.previewFg };
 
   const colors = useMemo(() => {
     const map = new Map<string, string>();
@@ -160,11 +169,12 @@ export function MergedLogView({ tabs }: MergedLogViewProps) {
           fontSize: 12,
           px: 1,
           py: 0.5,
+          ...(themedColors && { bgcolor: themedColors.bg, color: themedColors.fg }),
         }}
       >
         {lines.map((line) => (
           <Box key={line.key} sx={{ display: "flex", gap: 1, whiteSpace: "pre-wrap", wordBreak: "break-all", lineHeight: 1.7 }}>
-            <Box component="span" sx={{ color: "text.secondary", flexShrink: 0 }}>
+            <Box component="span" sx={{ color: themedColors ? themedColors.fg : "text.secondary", opacity: themedColors ? 0.7 : 1, flexShrink: 0 }}>
               {formatTimestamp(line.timestamp)}
             </Box>
             <Box

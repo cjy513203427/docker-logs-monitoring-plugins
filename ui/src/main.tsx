@@ -6,6 +6,7 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { App } from "./components/App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { cleanupOrphanedLogStreams } from "./api/containers";
+import { TerminalThemeProvider } from "./state/TerminalThemeContext";
 
 // `@docker/docker-mui-theme`'s `DockerMuiThemeProvider` reads its palette off
 // a `window.__ddMuiV5Themes` global that Docker Desktop's host page doesn't
@@ -30,7 +31,9 @@ function Root() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <ErrorBoundary>
-        <App />
+        <TerminalThemeProvider>
+          <App />
+        </TerminalThemeProvider>
       </ErrorBoundary>
     </ThemeProvider>
   );

@@ -5,6 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { startLogStream } from "../api/containers";
 import type { TailLines } from "../types";
+import { useTerminalTheme } from "../state/TerminalThemeContext";
 
 export interface XtermLogHandle {
   clear(): void;
@@ -20,10 +21,14 @@ interface XtermLogProps {
 }
 
 /**
- * A single container's log viewport, rendered with xterm.js using its
- * built-in default theme — intentionally no custom colors/fonts/CSS are
- * applied here so the output looks exactly like running
- * `docker logs -f -t <container>` in a real terminal.
+ * A single container's log viewport, rendered with xterm.js — no
+ * content-level processing (no coloring/parsing/reformatting of the log
+ * bytes themselves), so the output is byte-for-byte what
+ * `docker logs -f -t <container>` would print. The *palette* (background,
+ * foreground, the 16 ANSI colors) is user-selectable via
+ * TerminalThemeContext - that's a display-only concern, same as picking a
+ * color scheme in any real terminal emulator, and doesn't touch the raw
+ * bytes fed to xterm.
  */
 export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function XtermLog(
   { containerId, timestamps, following, tailLines },
@@ -35,6 +40,8 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
   const searchRef = useRef<SearchAddon | null>(null);
   const followingRef = useRef(following);
   const pausedBufferRef = useRef<string[]>([]);
+  const { preset: themePreset } = useTerminalTheme();
+  const initialThemeRef = useRef(themePreset.theme);
 
   useImperativeHandle(ref, () => ({
     clear() {
@@ -66,8 +73,12 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
       disableStdin: true,
       scrollback: 10000,
       cursorBlink: false,
-      // No `theme` set on purpose: xterm's default theme is what a real
-      // terminal looks like, matching Docker's own native log view.
+      // Read via a ref (not the `themePreset` prop directly) so a theme
+      // change doesn't belong in this effect's deps - see the dedicated
+      // live-update effect below, which mutates the existing terminal's
+      // theme in place instead of recreating it (recreating would clear
+      // the buffer and briefly interrupt the active log stream).
+      theme: initialThemeRef.current,
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -95,6 +106,18 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
       termRef.current = null;
     };
   }, []);
+
+  // Apply theme changes live, to the already-mounted terminal, instead of
+  // recreating it - xterm.js supports assigning `terminal.options.theme`
+  // post-construction (must be a new object, per its own docs: mutating the
+  // existing one in place doesn't take effect). Skips the initial mount
+  // (initialThemeRef already covers that) so this only fires on an actual
+  // user-driven change.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || themePreset.theme === initialThemeRef.current) return;
+    term.options.theme = themePreset.theme ? { ...themePreset.theme } : {};
+  }, [themePreset]);
 
   // (Re)start the raw `docker logs -f` stream whenever the container, the
   // timestamp flag, or the requested history length changes; always tear the
