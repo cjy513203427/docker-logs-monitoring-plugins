@@ -13,7 +13,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import type { ContainerInfo } from "../types";
+import { CONTAINER_DRAG_MIME_TYPE, type ContainerInfo } from "../types";
 import type { LayoutAction } from "../state/layout";
 import { listContainers, watchContainerEvents } from "../api/containers";
 
@@ -161,8 +161,13 @@ export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProp
                 {group.containers.map((container) => (
                   <ListItemButton
                     key={container.id}
-                    sx={{ pl: showHeader ? 3 : 2 }}
+                    sx={{ pl: showHeader ? 3 : 2, "&[draggable=true]": { cursor: "grab" } }}
                     onClick={() => dispatch({ type: "OPEN_TAB", paneId: focusedPaneId, container })}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(CONTAINER_DRAG_MIME_TYPE, JSON.stringify(container));
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
                   >
                     <Box
                       sx={{

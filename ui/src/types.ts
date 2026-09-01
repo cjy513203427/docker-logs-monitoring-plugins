@@ -1,3 +1,7 @@
+/** `DataTransfer` MIME type used to drag a container from the sidebar
+ * (ContainerPicker) onto a specific pane (LogPane) to open it there. */
+export const CONTAINER_DRAG_MIME_TYPE = "application/x-logs-console-container";
+
 export interface ContainerInfo {
   id: string;
   name: string;

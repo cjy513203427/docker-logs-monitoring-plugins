@@ -22,7 +22,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import CallMergeIcon from "@mui/icons-material/CallMerge";
-import type { PaneState, PaneViewMode, TailLines } from "../types";
+import { CONTAINER_DRAG_MIME_TYPE, type ContainerInfo, type PaneState, type PaneViewMode, type TailLines } from "../types";
 import type { LayoutAction } from "../state/layout";
 import { XtermLog, type XtermLogHandle } from "./XtermLog";
 import { MergedLogView } from "./MergedLogView";
@@ -45,21 +45,55 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
   const [search, setSearch] = useState("");
   const logRefs = useRef(new Map<string, XtermLogHandle | null>());
   const [tailMenu, setTailMenu] = useState<{ tabId: string; top: number; left: number } | null>(null);
+  // Counter, not a boolean: dragenter/dragleave fire for every child element
+  // the pointer crosses too, not just the pane's own boundary, so a naive
+  // boolean flickers on/off as the drag moves over tabs/content inside.
+  const [dragOverDepth, setDragOverDepth] = useState(0);
 
   const openTailMenu = (e: MouseEvent, tabId: string) => {
     e.preventDefault();
     setTailMenu({ tabId, top: e.clientY, left: e.clientX });
   };
 
+  const isContainerDrag = (e: { dataTransfer: DataTransfer }) => e.dataTransfer.types.includes(CONTAINER_DRAG_MIME_TYPE);
+
   return (
     <Box
       onMouseDown={() => dispatch({ type: "FOCUS_PANE", paneId: pane.id })}
+      onDragEnter={(e) => {
+        if (!isContainerDrag(e)) return;
+        e.preventDefault();
+        setDragOverDepth((d) => d + 1);
+      }}
+      onDragOver={(e) => {
+        if (!isContainerDrag(e)) return;
+        e.preventDefault(); // required for onDrop to ever fire
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        if (!isContainerDrag(e)) return;
+        setDragOverDepth((d) => Math.max(0, d - 1));
+      }}
+      onDrop={(e) => {
+        const raw = e.dataTransfer.getData(CONTAINER_DRAG_MIME_TYPE);
+        if (!raw) return;
+        e.preventDefault();
+        setDragOverDepth(0);
+        const container = JSON.parse(raw) as ContainerInfo;
+        dispatch({ type: "OPEN_TAB", paneId: pane.id, container });
+      }}
       sx={{
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        outline: (theme) => (isFocused ? `2px solid ${theme.palette.primary.main}` : "2px solid transparent"),
+        outline: (theme) =>
+          dragOverDepth > 0
+            ? `2px dashed ${theme.palette.primary.main}`
+            : isFocused
+              ? `2px solid ${theme.palette.primary.main}`
+              : "2px solid transparent",
         outlineOffset: "-2px",
+        bgcolor: dragOverDepth > 0 ? "action.hover" : undefined,
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", borderBottom: 1, borderColor: "divider" }}>
