@@ -14,6 +14,7 @@ import type { PaneLayout } from "../types";
 import { initialLayoutState, layoutReducer } from "../state/layout";
 import { ContainerPicker } from "./ContainerPicker";
 import { PaneGrid } from "./PaneGrid";
+import { Tips } from "./Tips";
 
 const LAYOUT_OPTIONS: { value: PaneLayout; label: string; icon: JSX.Element }[] = [
   { value: "1", label: "Single pane", icon: <ViewAgendaIcon fontSize="small" /> },
@@ -65,6 +66,7 @@ export function App() {
       >
         <Typography variant="h6">Logs Console</Typography>
         <Box sx={{ flex: 1 }} />
+        <Tips />
         <ToggleButtonGroup
           size="small"
           exclusive

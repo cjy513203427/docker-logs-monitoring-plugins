@@ -7,11 +7,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 "Logs Console" — a Docker Desktop extension: a multi-tab, split-screen
 viewer for `docker logs`. Logs are rendered with xterm.js using raw
 `docker logs` byte output (no custom table/JSON pretty-printing), so the
-UI looks like running `docker logs -f` in a real terminal.
+UI looks like running `docker logs -f` in a real terminal. Docker's own
+**Logs Explorer** extension (`docker/logs-explorer-extension`, often
+installed alongside this one) takes the opposite approach — a merged
+data-grid table with no ANSI interpretation — which is why this project
+exists as a separate thing rather than a PR against it.
 
-The extension has **no backend/VM** — the UI talks to Docker only through
-`ddClient.docker.cli.exec` (the Docker Desktop extension API), which shells
-out to the `docker` CLI already present on the host.
+The extension has **no backend/VM** — the UI talks to Docker almost
+entirely through `ddClient.docker.cli.exec` (the Docker Desktop extension
+API), which shells out to the `docker` CLI already present on the host.
+The one exception is `ddClient.extension.host.cli.exec`, used to run a
+small per-OS cleanup binary (see "Host binaries" below).
 
 ## Commands
 
@@ -42,62 +48,188 @@ npm run preview   # preview a production build
 ```
 
 There is no test suite and no lint script configured in `ui/package.json`.
+Feature work in this repo has instead been verified with disposable
+Playwright scripts run against `ui/dist` with a mocked `window.ddClient`
+(see the `## Gotchas` entries below for what that caught) — there's no
+harness for this checked in, but it's the pattern to reach for.
 
 ### Requirements
 
 - Docker Desktop with the `docker extension` CLI.
 - Node.js 18+ for building the UI.
-- `ui/package.json` pins `@docker/docker-mui-theme` — check the installed
-  version actually exists on the npm registry before bumping it; the range
-  originally committed here (`^0.1.7`) does not resolve to any published
-  version (latest is `0.0.13`) and breaks `npm ci` in the Docker build.
+- Docker Desktop must actually be running with the extension **reinstalled**
+  (`docker extension update ... --force`, not just a rebuilt image) to see
+  changes — an already-open panel does not reliably reload on its own; if
+  it still looks stale after that, use `make dev-ui` to point it at a live
+  Vite dev server instead, which forces a real navigation.
 
 ## Architecture
 
 Everything lives under `ui/src/`. The extension is a single React app
-(`main.tsx` -> `components/App.tsx`) with three layers:
+(`main.tsx` -> `components/App.tsx`).
 
 - **`api/`** — the only boundary that touches Docker.
-  - `docker.ts` creates and exports the single shared `ddClient`
-    (`createDockerDesktopClient()`), used everywhere else in the UI.
-  - `containers.ts` has two entry points:
-    - `listContainers()` — runs `docker ps --all --format '"{{json .}}"'`
-      and parses it with `result.parseJsonLines()`.
-    - `startLogStream()` — runs `docker logs -f` with `stream: {...}`.
-      **Important:** when `stream` is passed, `ddClient.docker.cli.exec`
-      returns an `ExecProcess` synchronously, not a `Promise` — it must
-      not be awaited. Callers get back a handle and **must call
-      `.close()`** when a tab/pane closes, or the follow process leaks
-      for the lifetime of the extension. Output is streamed through
-      untouched (`splitOutputLines: false`) so it can feed xterm.js
-      byte-for-byte.
+  - `docker.ts` exports `ddClient`. It is **lazy**, not an eager
+    `createDockerDesktopClient()` call at module scope: that throws
+    synchronously if `window.ddClient` isn't set yet, and calling it at
+    import time meant the throw happened before React ever mounted
+    anything, blanking the whole panel with zero on-screen error. `ddClient`
+    is a `Proxy` that only calls `createDockerDesktopClient()` on first
+    actual property access (from inside a React effect/handler, well after
+    mount) — see the git history around the theme-provider/blank-panel bugs
+    for the full story.
+  - `containers.ts`:
+    - `listContainers()` — runs `docker ps --all --format`. **The format
+      string must stay wrapped in literal quotes** (`'"{{json .}}"'`, not
+      `'{{json .}}'`) — `{{json .}}` contains a space, and dropping the
+      quotes reliably broke container listing against the real Docker
+      Desktop (confirmed by hand), even though Docker's own Logs Explorer
+      extension uses the unquoted form for its (different) `docker events`
+      call. Don't "clean this up" without reverifying against the actual
+      installed extension — a mocked `ddClient` in a test script can't
+      catch this class of bug since it doesn't care what args were passed.
+      Also parses the container's `Labels` string (comma-joined
+      `key=value` pairs, not JSON) to pull out
+      `com.docker.compose.project` for sidebar grouping.
+    - `watchContainerEvents()` — streams `docker events` (same quoting
+      caveat) instead of polling `docker ps` on a timer, so the sidebar
+      reacts within milliseconds of a container starting/stopping.
+    - `startLogStream(containerId, { timestamps, tail }, onChunk, onClose)`
+      — runs `docker logs -f` with `stream: {...}`. **Important:** when
+      `stream` is passed, `ddClient.docker.cli.exec` returns an
+      `ExecProcess` synchronously, not a `Promise` — it must not be
+      awaited. Callers get back a handle and **must call `.close()`** when
+      a tab/pane closes, or the follow process leaks for the lifetime of
+      the extension. Output is streamed through untouched
+      (`splitOutputLines: false`) so it can feed xterm.js byte-for-byte.
+      `tail` is caller-controlled (500 / 5000 / "all", see
+      `TabState.tailLines`), not hardcoded.
+    - `cleanupOrphanedLogStreams()` — every `startLogStream` call records
+      its containerId in `localStorage`; this function (called once from
+      `main.tsx` on startup) reads whatever's left over from a previous,
+      uncleanly-terminated session, clears the bookkeeping, and asks the
+      host binary to kill any matching orphaned processes. See "Host
+      binaries" below for the actual kill mechanism.
 
 - **`state/layout.ts`** — a single `useReducer` reducer (`layoutReducer`)
-  that owns the whole split-screen/tab model, held in `App.tsx`. Key
-  shape (see `types.ts`): `LayoutState` has a `PaneLayout` ("1" / "2h" /
-  "2v" / "2x2"), a list of `PaneState` (each with its own `tabs` and
-  `activeTabId`), and a `focusedPaneId` — new tabs from the container
-  picker open into whichever pane is focused. Changing `SET_LAYOUT` to a
-  smaller pane count merges the overflow panes' tabs into the last
-  remaining pane rather than dropping them. Tab identity (`TabState.id`)
-  is distinct from `containerId` so the same container can be opened in
-  more than one pane at once.
+  that owns the whole split-screen/tab model, held in `App.tsx`. Key shape
+  (see `types.ts`): `LayoutState` has a `PaneLayout`
+  ("1"/"2h"/"2v"/"2x2"/"3x2"/"3x3"), a list of `PaneState` (each with its
+  own `tabs`, `activeTabId`, and `viewMode: "tabs" | "merged"`), and a
+  `focusedPaneId` — new tabs from the container picker (click or drag) open
+  into whichever pane is focused. Changing `SET_LAYOUT` to a smaller pane
+  count merges the overflow panes' tabs into the last remaining pane rather
+  than dropping them; growing adds empty panes. Both are pane-*count*
+  driven, not layout-name driven, so adding another grid size is just
+  another `PANE_COUNT` entry. Tab identity (`TabState.id`) is distinct from
+  `containerId` so the same container can be opened in more than one pane
+  at once. `CYCLE_TAB` (Ctrl+Tab) moves `activeTabId` forward/back within
+  one pane's tabs, wrapping around.
 
 - **`components/`**
-  - `App.tsx` — top bar (title + layout picker) and the two-column body
-    (`ContainerPicker` sidebar + `PaneGrid`).
+  - `App.tsx` — top bar (title, Tips, layout picker) and the two-column
+    body (`ContainerPicker` sidebar + `PaneGrid`). Also owns the
+    Ctrl+Tab/Ctrl+Shift+Tab `keydown` listener — see the xterm.js gotcha
+    below for why it's capture-phase and calls `stopPropagation()`.
   - `ContainerPicker.tsx` — sidebar list of containers (via
-    `listContainers()`); opening one dispatches `OPEN_TAB` into the
-    focused pane.
-  - `PaneGrid.tsx` / `LogPane.tsx` — resizable split-screen grid (via
-    `allotment`) and the per-pane tab strip.
-  - `XtermLog.tsx` — one xterm.js instance per open tab, fed by
-    `startLogStream()`.
+    `listContainers()` + `watchContainerEvents()`), grouped by
+    `composeProject` into collapsible sections, filterable by text and by
+    All/Running/Stopped. Opening a container (click, or drag onto a pane —
+    see `LogPane.tsx`) dispatches `OPEN_TAB`.
+  - `PaneGrid.tsx` — resolves `state.layout` to nested `Allotment` splits
+    via a shared `renderGrid(rows, cols, pane)` helper (2x2/3x2/3x3 are all
+    the same shape, just different dimensions). **Every top-level
+    `Allotment` needs `key={state.layout}`.** Two different layouts can
+    render an `<Allotment>` at the same JSX position with a different
+    `vertical` prop (e.g. "2h" horizontal vs. "2x2" vertical); without a
+    key React reconciles that as updating the *same* Allotment instance in
+    place, and Allotment's internal split-view sizing engine doesn't
+    correctly recompute for a live orientation flip on an already-mounted
+    instance — one row silently collapses to 0 height, permanently (not a
+    timing issue; waiting longer or firing a `resize` event doesn't fix
+    it). The key forces a fresh mount with freshly-computed sizing on every
+    layout change.
+  - `LogPane.tsx` — per-pane tab strip + toolbar. In `"tabs"` mode it's a
+    normal MUI `Tabs`/`Tab` strip; in `"merged"` mode the strip becomes a
+    row of colored, removable `Chip`s instead (`Tabs` implies one selected
+    tab, which is meaningless once the content below is every tab merged
+    together). Also the drop target for dragging a container from the
+    sidebar (`CONTAINER_DRAG_MIME_TYPE`, defined in `types.ts`) directly
+    onto a specific pane — uses a drag-depth counter, not a boolean, since
+    `dragenter`/`dragleave` fire for every child element crossed too.
+    Right-clicking a tab (or clicking its "last N" chip) opens the
+    tail-length menu (`SET_TAIL_LINES`).
+  - `MergedLogView.tsx` — combines every tab open in a pane into one
+    chronologically-interleaved, per-container-colored stream (shared
+    color hash in `utils/colors.ts`, also used for the merged-mode Chips in
+    `LogPane.tsx`). This is the one place that intentionally breaks from
+    "raw bytes only": it always requests `--timestamps` (needed to sort
+    across containers) and strips ANSI escapes (renders into plain React
+    text, not a terminal). The default per-tab `XtermLog` view is
+    untouched and stays byte-for-byte raw — merged mode is a deliberately
+    separate, opt-in path. Not gated by Compose project; any tabs open in
+    the pane can be merged regardless of which project(s) they belong to.
+  - `XtermLog.tsx` — one xterm.js instance per open tab
+    (`disableStdin: true`, no custom `theme`), fed by `startLogStream()`.
+    Restarts its stream when `containerId`, `timestamps`, or `tailLines`
+    change.
+  - `ErrorBoundary.tsx` — wraps `<App />` in `main.tsx`. Exists because
+    this extension has hit two separate "exception during render blanks
+    the entire panel with zero visible error" bugs (the theme provider, and
+    the eager `ddClient` access) — this turns any future one into a
+    visible on-screen message instead of a silent blank panel.
+  - `Tips.tsx` — in-app help dialog (💡 button in the top bar) documenting
+    the features that have no other discovery path (drag-to-pane,
+    Ctrl+Tab, the tail-length chip, merged view).
 
-## Docker image (`Dockerfile`)
+## Host binaries
 
-Two-stage build: `node:20-alpine` builds `ui/` (`npm ci && npm run
-build`), then the built `ui/dist` plus `metadata.json` and `icon.svg` are
-copied into a plain `alpine` image. `metadata.json` declares the single
-`dashboard-tab` UI entry point (title "Logs Console", `src: index.html`,
-`root: ui`) that Docker Desktop loads.
+`host/{windows,darwin,linux}/kill-orphaned-logs.{cmd,sh}` are declared in
+`metadata.json` under `host.binaries` and copied into the image root by the
+`Dockerfile` (`COPY host/ /`). They're invoked via
+`ddClient.extension.host.cli.exec(binary, containerIds)` from
+`cleanupOrphanedLogStreams()` (see `containers.ts` above). Each script only
+ever matches a *specific* container ID passed in by the caller, combined
+with "docker" and "logs" both appearing in the command line — never a bare
+`docker logs` pattern — so a user's own unrelated `docker logs -f` session
+in a separate terminal is never touched. (Docker's own Logs Explorer
+extension does the equivalent with a much broader `wmic ... CommandLine
+Like '%logs --follow --timestamp%'` match, which is both more collateral-
+damage-prone and relies on `wmic`, which is deprecated/being removed on
+current Windows — don't copy that pattern.) The darwin/linux script is
+code-reviewed but has not been run against a real Mac/Linux machine or a
+genuine crash-with-active-streams scenario — treat it as unverified if
+touching it.
+
+## Gotchas (don't rediscover these)
+
+- **`@docker/docker-mui-theme` is not a dependency.** It was removed
+  entirely — its `DockerMuiThemeProvider` reads a theme palette off
+  `window.__ddMuiV5Themes`, a global Docker Desktop doesn't reliably
+  inject, and throws `Cannot read properties of undefined (reading
+  'light')` on first render when it's missing. `main.tsx` builds the
+  light/dark theme locally instead (`createTheme` +
+  `useMediaQuery('(prefers-color-scheme: dark)')`).
+- **`ui/vite.config.ts` sets `base: "./"`.** Docker Desktop loads the built
+  extension UI via a `file://` URL, not an HTTP server. The Vite default
+  (`/assets/...`, root-absolute) resolves against the filesystem root under
+  `file://` (e.g. `C:\assets\`) instead of `index.html`'s own directory, so
+  every asset 404s and the panel is blank. Relative paths resolve
+  correctly under both `file://` and the Vite dev server.
+- **xterm.js swallows a bare `Tab` keydown**, Ctrl held or not, via a
+  capture-phase listener on its own hidden textarea (`cancel()` calls
+  `preventDefault()` + `stopPropagation()` unconditionally for keyCode 9
+  unless Shift is held). Any future global keyboard shortcut that uses Tab
+  needs its own listener registered on the *capture* phase
+  (`addEventListener(..., true)`) to win the race against a focused
+  terminal - see the Ctrl+Tab listener in `App.tsx`.
+- **A render crash before first mount looks identical to "nothing
+  happened".** Both the theme-provider bug and the eager-`ddClient` bug
+  produced a totally blank panel with no console output visible anywhere
+  in Docker Desktop's normal UI - the only way either was actually
+  diagnosed was `docker extension dev debug` (opens real Chrome DevTools
+  for the panel) plus `docker extension dev ui-source ... http://localhost:PORT`
+  (points the *already-installed* extension at a live Vite dev server,
+  which reliably forces a fresh navigation - reinstalling via
+  `docker extension update` does not reliably do this on its own for a
+  panel that's already open).
