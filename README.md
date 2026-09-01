@@ -43,6 +43,10 @@ extension, but differs from both in two load-bearing ways:
   or full history.
 - **Ctrl+Tab / Ctrl+Shift+Tab** cycles through the tabs of whichever pane is
   focused, same convention as browsers and VS Code.
+- **Terminal color theme** (palette icon in the top bar) — Classic (xterm
+  default), Soft Dark, or Solarized Dark, switchable live without
+  disrupting an active log stream. Display-only, same as picking a color
+  scheme in any real terminal — it never touches the raw log bytes.
 - A **Tips** dialog (💡 in the top bar) documents all of the above in-app.
 
   ![Tips dialog](docs/screenshots/tips.png)
@@ -70,6 +74,10 @@ make dev-debug                         # open devtools for the extension UI
 ```
 
 Run `make reset-dev` to go back to the built assets.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each tagged release.
 
 ## Architecture
 
