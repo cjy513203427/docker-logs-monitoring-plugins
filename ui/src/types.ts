@@ -12,7 +12,10 @@ export interface ContainerInfo {
   composeProject?: string;
 }
 
-export type PaneLayout = "1" | "2h" | "2v" | "2x2";
+// "3x2"/"3x3" (6/9 panes) exist for large monitors - on a normal laptop
+// screen they're cramped, but that's the user's call to make, not ours to
+// block.
+export type PaneLayout = "1" | "2h" | "2v" | "2x2" | "3x2" | "3x3";
 
 /** How many lines of history a tab's log stream requests via `docker logs --tail`. */
 export type TailLines = 500 | 5000 | "all";

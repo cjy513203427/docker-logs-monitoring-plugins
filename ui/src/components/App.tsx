@@ -8,6 +8,8 @@ import ViewAgendaIcon from "@mui/icons-material/ViewAgenda";
 import ViewColumnIcon from "@mui/icons-material/ViewColumn";
 import SplitscreenIcon from "@mui/icons-material/Splitscreen";
 import GridViewIcon from "@mui/icons-material/GridView";
+import ViewComfyIcon from "@mui/icons-material/ViewComfy";
+import Grid3x3Icon from "@mui/icons-material/Grid3x3";
 import type { PaneLayout } from "../types";
 import { initialLayoutState, layoutReducer } from "../state/layout";
 import { ContainerPicker } from "./ContainerPicker";
@@ -18,6 +20,8 @@ const LAYOUT_OPTIONS: { value: PaneLayout; label: string; icon: JSX.Element }[] 
   { value: "2h", label: "Split left/right", icon: <ViewColumnIcon fontSize="small" /> },
   { value: "2v", label: "Split top/bottom", icon: <SplitscreenIcon fontSize="small" /> },
   { value: "2x2", label: "2×2 grid", icon: <GridViewIcon fontSize="small" /> },
+  { value: "3x2", label: "3×2 grid (large monitors)", icon: <ViewComfyIcon fontSize="small" /> },
+  { value: "3x3", label: "3×3 grid (large monitors)", icon: <Grid3x3Icon fontSize="small" /> },
 ];
 
 export function App() {

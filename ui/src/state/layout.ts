@@ -15,6 +15,8 @@ const PANE_COUNT: Record<PaneLayout, number> = {
   "2h": 2,
   "2v": 2,
   "2x2": 4,
+  "3x2": 6,
+  "3x3": 9,
 };
 
 export function initialLayoutState(): LayoutState {
