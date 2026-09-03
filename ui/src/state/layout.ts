@@ -34,7 +34,8 @@ export type LayoutAction =
   | { type: "TOGGLE_FOLLOWING"; paneId: string; tabId: string }
   | { type: "SET_TAIL_LINES"; paneId: string; tabId: string; tailLines: TailLines }
   | { type: "SET_PANE_VIEW_MODE"; paneId: string; viewMode: PaneViewMode }
-  | { type: "CYCLE_TAB"; paneId: string; direction: "next" | "prev" };
+  | { type: "CYCLE_TAB"; paneId: string; direction: "next" | "prev" }
+  | { type: "SYNC_CONTAINERS"; containers: ContainerInfo[] };
 
 function withPane(state: LayoutState, paneId: string, update: (pane: PaneState) => PaneState): LayoutState {
   return {
@@ -78,6 +79,8 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
         timestamps: true,
         following: true,
         tailLines: 500,
+        streamEpoch: 0,
+        lastKnownState: action.container.state,
       };
       return {
         ...withPane(state, pane.id, (p) => ({ ...p, tabs: [...p.tabs, tab], activeTabId: tab.id })),
@@ -123,6 +126,54 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
 
     case "SET_PANE_VIEW_MODE":
       return withPane(state, action.paneId, (pane) => ({ ...pane, viewMode: action.viewMode }));
+
+    // Reconciles open tabs against a freshly-fetched container list (called
+    // from ContainerPicker on every event-driven or manual refresh). Fixes
+    // two ways a tab's log stream can otherwise go silently stale:
+    //  1. Same id, container stopped then started again - `docker logs -f`
+    //     does not reliably resume on its own, so bump streamEpoch to force
+    //     XtermLog/MergedLogView to reissue the stream.
+    //  2. Container recreated (removed + a new one started under the same
+    //     name, e.g. a Compose redeploy or a health-check-driven recreate) -
+    //     the tab's containerId is now permanently dead. Docker container
+    //     names are unique host-wide, so "a container with this tab's name
+    //     exists under a different id" unambiguously means "this is the
+    //     replacement" - rebind the tab to it.
+    case "SYNC_CONTAINERS": {
+      const byId = new Map(action.containers.map((c) => [c.id, c]));
+      const byName = new Map(action.containers.map((c) => [c.name, c]));
+      let anyPaneChanged = false;
+      const panes = state.panes.map((pane) => {
+        let anyTabChanged = false;
+        const tabs = pane.tabs.map((tab) => {
+          const sameContainer = byId.get(tab.containerId);
+          if (sameContainer) {
+            const wasRunning = tab.lastKnownState === "running";
+            const nowRunning = sameContainer.state === "running";
+            if (tab.lastKnownState && !wasRunning && nowRunning) {
+              anyTabChanged = true;
+              return { ...tab, lastKnownState: sameContainer.state, streamEpoch: tab.streamEpoch + 1 };
+            }
+            if (tab.lastKnownState !== sameContainer.state) {
+              anyTabChanged = true;
+              return { ...tab, lastKnownState: sameContainer.state };
+            }
+            return tab;
+          }
+
+          const recreated = byName.get(tab.containerName);
+          if (recreated && recreated.id !== tab.containerId) {
+            anyTabChanged = true;
+            return { ...tab, containerId: recreated.id, lastKnownState: recreated.state };
+          }
+          return tab;
+        });
+        if (!anyTabChanged) return pane;
+        anyPaneChanged = true;
+        return { ...pane, tabs };
+      });
+      return anyPaneChanged ? { ...state, panes } : state;
+    }
 
     case "CYCLE_TAB":
       return withPane(state, action.paneId, (pane) => {

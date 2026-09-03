@@ -28,6 +28,26 @@ export interface TabState {
   timestamps: boolean;
   following: boolean;
   tailLines: TailLines;
+  /**
+   * Bumped by the `SYNC_CONTAINERS` reducer case whenever this tab's log
+   * stream should be force-restarted even though containerId/timestamps/
+   * tailLines didn't change - specifically, when the same container id goes
+   * from not-running back to running (`docker logs -f` does not reliably
+   * resume on its own across a same-id container restart). A rebind to a
+   * *recreated* container (see lastKnownState below) changes containerId
+   * itself, which already retriggers the stream on its own - this field
+   * only covers the same-id case. XtermLog includes it in its stream-restart
+   * effect's dependency array.
+   */
+  streamEpoch: number;
+  /**
+   * The backing container's `state` (e.g. "running"/"exited") as of the most
+   * recent `SYNC_CONTAINERS` sync. Used only to detect a running -> stopped
+   * -> running transition on the *same* container id (see streamEpoch) and
+   * to seed rebinding when a same-named container replaces this one under a
+   * new id - see the SYNC_CONTAINERS reducer case in state/layout.ts.
+   */
+  lastKnownState?: string;
 }
 
 /**

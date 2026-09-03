@@ -18,6 +18,10 @@ interface XtermLogProps {
   timestamps: boolean;
   following: boolean;
   tailLines: TailLines;
+  /** Bumped by the SYNC_CONTAINERS reducer case to force a stream restart
+   * (e.g. the container stopped and started again under the same id) even
+   * though containerId/timestamps/tailLines are unchanged - see TabState. */
+  streamEpoch: number;
 }
 
 /**
@@ -31,7 +35,7 @@ interface XtermLogProps {
  * bytes fed to xterm.
  */
 export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function XtermLog(
-  { containerId, timestamps, following, tailLines },
+  { containerId, timestamps, following, tailLines, streamEpoch },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -120,8 +124,9 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
   }, [themePreset]);
 
   // (Re)start the raw `docker logs -f` stream whenever the container, the
-  // timestamp flag, or the requested history length changes; always tear the
-  // previous process down first.
+  // timestamp flag, the requested history length, or streamEpoch (a forced-
+  // restart signal from SYNC_CONTAINERS - see TabState) changes; always tear
+  // the previous process down first.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
@@ -139,7 +144,7 @@ export const XtermLog = forwardRef<XtermLogHandle, XtermLogProps>(function Xterm
 
     return () => handle.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [containerId, timestamps, tailLines]);
+  }, [containerId, timestamps, tailLines, streamEpoch]);
 
   return <div ref={hostRef} style={{ width: "100%", height: "100%" }} />;
 });

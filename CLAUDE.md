@@ -93,7 +93,10 @@ Everything lives under `ui/src/`. The extension is a single React app
       `com.docker.compose.project` for sidebar grouping.
     - `watchContainerEvents()` — streams `docker events` (same quoting
       caveat) instead of polling `docker ps` on a timer, so the sidebar
-      reacts within milliseconds of a container starting/stopping.
+      reacts within milliseconds of a container starting/stopping. Every
+      event triggers a `listContainers()` refresh in `ContainerPicker`,
+      which also dispatches `SYNC_CONTAINERS` (see `state/layout.ts`) to
+      reconcile already-open tabs against the fresh list.
     - `startLogStream(containerId, { timestamps, tail }, onChunk, onClose)`
       — runs `docker logs -f` with `stream: {...}`. **Important:** when
       `stream` is passed, `ddClient.docker.cli.exec` returns an
@@ -125,6 +128,17 @@ Everything lives under `ui/src/`. The extension is a single React app
   `containerId` so the same container can be opened in more than one pane
   at once. `CYCLE_TAB` (Ctrl+Tab) moves `activeTabId` forward/back within
   one pane's tabs, wrapping around.
+  `SYNC_CONTAINERS` (dispatched from `ContainerPicker` on every refresh —
+  event-driven or manual) reconciles open tabs against a fresh container
+  list so a tab's log stream doesn't silently go stale: if the same
+  `containerId` transitions from not-running back to running, it bumps
+  `TabState.streamEpoch` to force a reconnect (`docker logs -f` doesn't
+  reliably resume on its own across a same-id restart); if a tab's
+  `containerId` has disappeared but a container with the same `name` exists
+  under a *different* id (a recreate, e.g. a Compose redeploy or a
+  health-check-driven recreation — Docker names are unique host-wide so this
+  is unambiguous), it rebinds the tab to the new id. See the Gotchas entry
+  below.
 
 - **`components/`**
   - `App.tsx` — top bar (title, Tips, layout picker) and the two-column
@@ -135,7 +149,9 @@ Everything lives under `ui/src/`. The extension is a single React app
     `listContainers()` + `watchContainerEvents()`), grouped by
     `composeProject` into collapsible sections, filterable by text and by
     All/Running/Stopped. Opening a container (click, or drag onto a pane —
-    see `LogPane.tsx`) dispatches `OPEN_TAB`.
+    see `LogPane.tsx`) dispatches `OPEN_TAB`. Its `refresh()` (mount, the
+    manual Refresh button, and every container event) also dispatches
+    `SYNC_CONTAINERS` with the fresh list — see `state/layout.ts`.
   - `PaneGrid.tsx` — resolves `state.layout` to nested `Allotment` splits
     via a shared `renderGrid(rows, cols, pane)` helper (2x2/3x2/3x3 are all
     the same shape, just different dimensions). **Every top-level
@@ -171,8 +187,10 @@ Everything lives under `ui/src/`. The extension is a single React app
     the pane can be merged regardless of which project(s) they belong to.
   - `XtermLog.tsx` — one xterm.js instance per open tab
     (`disableStdin: true`, no custom `theme`), fed by `startLogStream()`.
-    Restarts its stream when `containerId`, `timestamps`, or `tailLines`
-    change.
+    Restarts its stream when `containerId`, `timestamps`, `tailLines`, or
+    `streamEpoch` (the `SYNC_CONTAINERS` forced-reconnect signal) change.
+    `MergedLogView.tsx` folds the same four into its own per-tab restart key
+    independently — it doesn't share this effect.
   - `ErrorBoundary.tsx` — wraps `<App />` in `main.tsx`. Exists because
     this extension has hit two separate "exception during render blanks
     the entire panel with zero visible error" bugs (the theme provider, and
@@ -223,6 +241,26 @@ touching it.
   needs its own listener registered on the *capture* phase
   (`addEventListener(..., true)`) to win the race against a focused
   terminal - see the Ctrl+Tab listener in `App.tsx`.
+- **An open tab's `docker logs -f` process does not track its container
+  across a restart or recreation on its own — it's bound to a fixed
+  container ID for the tab's whole lifetime** (`OPEN_TAB` sets
+  `TabState.containerId` once; nothing updated it before `SYNC_CONTAINERS`
+  existed). Two concrete failure modes this caused, both reported as "some
+  logs just don't show up" from real usage against InterSystems IRIS
+  containers, which in practice get restarted/recreated more often than
+  most: (1) the *same* container id stops and starts again — the existing
+  `docker logs -f` process for that id does not reliably resume emitting new
+  output on its own, so the tab goes silently quiet; (2) the container gets
+  *recreated* (removed, new one started under the same name — a Compose
+  redeploy, a health-check-driven recreate) — the tab keeps following the
+  now-dead old id forever. Neither case produced any visible error; the tab
+  just looked normal and stopped updating. `SYNC_CONTAINERS` in
+  `state/layout.ts` fixes both by reconciling every open tab against each
+  fresh container list from `ContainerPicker`'s refresh (which already runs
+  on every `docker events` tick — see `watchContainerEvents()`). Don't
+  "simplify away" that reconciliation call thinking `watchContainerEvents`
+  alone (which only updates the sidebar) is sufficient — it isn't, that was
+  the original bug.
 - **A render crash before first mount looks identical to "nothing
   happened".** Both the theme-provider bug and the eager-`ddClient` bug
   produced a totally blank panel with no console output visible anywhere

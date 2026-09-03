@@ -72,10 +72,13 @@ export function MergedLogView({ tabs }: MergedLogViewProps) {
     return map;
   }, [tabs]);
 
-  const tabsKey = tabs.map((t) => `${t.containerId}:${t.tailLines}`).join(",");
+  // streamEpoch is included so a SYNC_CONTAINERS-driven forced restart (see
+  // TabState) - same id stopped and started again - also restarts this
+  // view's stream for that tab, not just XtermLog's.
+  const tabsKey = tabs.map((t) => `${t.containerId}:${t.tailLines}:${t.streamEpoch}`).join(",");
 
   // (Re)start one stream per open tab whenever the set of open tabs (or a
-  // tab's requested history length) changes.
+  // tab's requested history length or forced-restart epoch) changes.
   useEffect(() => {
     setLines([]);
     bufferRef.current = [];

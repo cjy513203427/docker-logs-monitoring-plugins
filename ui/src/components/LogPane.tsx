@@ -291,6 +291,7 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
                   timestamps={tab.timestamps}
                   following={tab.following}
                   tailLines={tab.tailLines}
+                  streamEpoch={tab.streamEpoch}
                 />
               </Box>
             ))}

@@ -68,7 +68,13 @@ export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProp
 
   const refresh = async () => {
     try {
-      setContainers(await listContainers());
+      const result = await listContainers();
+      setContainers(result);
+      // Reconcile every open tab against the fresh list - rebinds tabs whose
+      // container was recreated and restarts streams for one that stopped
+      // and came back under the same id. See the SYNC_CONTAINERS reducer
+      // case in state/layout.ts for why this can't just be "do nothing".
+      dispatch({ type: "SYNC_CONTAINERS", containers: result });
     } finally {
       setLoading(false);
     }
