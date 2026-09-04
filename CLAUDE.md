@@ -324,6 +324,32 @@ touching it.
   "simplify away" that reconciliation call thinking `watchContainerEvents`
   alone (which only updates the sidebar) is sufficient — it isn't, that was
   the original bug.
+- **Docker Desktop destroys and rebuilds the extension UI every time you
+  navigate away from its tab and back** - React remounts from scratch, so
+  anything held only in component state is gone (reported as "leave the
+  window, come back, and it's all back to zero"). `state/persistence.ts`
+  saves the whole `LayoutState` to `localStorage` on every change and
+  `App.tsx` restores it as the `useReducer` initializer. Two things that
+  restore has to get right, both verified with a Playwright reload test:
+  restored payloads are validated field-by-field and thrown away wholesale
+  if anything is off (a `panes.length` that disagrees with `PANE_COUNT[layout]`
+  makes `PaneGrid`'s positional `state.panes[index].id` throw during first
+  render = blank panel, no error), and `following` is deliberately *not*
+  restored, so a tab paused an hour ago doesn't come back looking like the
+  empty panel this feature exists to fix.
+- **The startup orphan sweep must be told which containers are already
+  open, or it kills the restored tabs' own streams.** React runs child
+  effects before the parent's, so every restored tab's `docker logs -f` has
+  already registered itself in the `logs-console:active-streams` bookkeeping
+  by the time `cleanupOrphanedLogStreams()` runs - they look exactly like
+  leftovers from a crashed session, and the host binary matches on container
+  id alone so it physically cannot tell a fresh stream from an orphaned one.
+  Hence `cleanupOrphanedLogStreams(activeContainerIds)` and its call site in
+  `App.tsx`'s mount effect (not `main.tsx` any more - App is where the
+  restored state lives). Excluded ids stay in the bookkeeping because this
+  session still owns them. Don't drop that argument "to simplify": the
+  symptom is a restored tab that looks perfectly normal and silently never
+  shows a line.
 - **A render crash before first mount looks identical to "nothing
   happened".** Both the theme-provider bug and the eager-`ddClient` bug
   produced a totally blank panel with no console output visible anywhere

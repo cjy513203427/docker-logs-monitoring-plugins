@@ -37,6 +37,10 @@ const TIPS: { title: string; body: string }[] = [
     body: 'The All/Running/Stopped row filters by container state, on top of the text search. Containers started by the same Compose project are grouped into a collapsible section automatically.',
   },
   {
+    title: "Your workspace is remembered",
+    body: "The layout, which containers are open in which pane, and each tab's timestamp/history settings are saved automatically, so leaving the Logs Console tab and coming back later restores the same workspace instead of an empty panel. Restored tabs re-read their history and start following again; a tab you had paused comes back running.",
+  },
+  {
     title: "Large-monitor layouts",
     body: "Besides the usual single/split/2×2 layouts, the two rightmost icons in the top bar give 3×2 (6 panes) and 3×3 (9 panes) grids for bigger screens.",
   },

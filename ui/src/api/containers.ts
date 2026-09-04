@@ -163,17 +163,31 @@ function markStreamClosed(containerId: string): void {
  * Kills any `docker logs -f` processes left running from a *previous*,
  * uncleanly-terminated session (e.g. the panel's script crashed before a
  * single React effect cleanup could run - see ErrorBoundary/docker.ts for
- * why that's a real, not theoretical, risk here). Call this once, before
- * anything in the new session starts its own streams.
+ * why that's a real, not theoretical, risk here).
  *
- * Snapshotting-then-clearing the bookkeeping synchronously (no `await`
- * between the two) before kicking off the actual (async) kill means a
- * container reopened seconds later by the *new* session can never be mistaken
- * for one of the leftovers being cleaned up here.
+ * `activeContainerIds` must list every container this session already has a
+ * tab open for, and is not optional in practice - it's what keeps the sweep
+ * from killing the current session's own streams. Since tabs are now restored
+ * from localStorage on mount (see state/persistence.ts), their `docker logs
+ * -f` processes are started by XtermLog's effects, and React runs child
+ * effects *before* the parent's - so by the time this runs, the bookkeeping
+ * list already contains this session's brand-new streams alongside any real
+ * leftovers. The host binary can only match on container id, so it physically
+ * cannot tell a fresh stream from an orphaned one for the same container:
+ * anything still open has to be excluded here or every restored tab gets its
+ * stream killed a moment after opening, leaving a tab that looks fine and
+ * silently shows nothing.
+ *
+ * Ids that are excluded stay in the bookkeeping (they're live streams this
+ * session still owns and may need to clean up later); the rest is snapshotted
+ * and dropped synchronously - no `await` in between - so a container opened
+ * seconds from now can't be mistaken for one of the leftovers being killed.
  */
-export async function cleanupOrphanedLogStreams(): Promise<void> {
-  const leftover = readActiveStreamSet();
-  writeActiveStreamSet([]);
+export async function cleanupOrphanedLogStreams(activeContainerIds: string[] = []): Promise<void> {
+  const stillOpen = new Set(activeContainerIds);
+  const recorded = readActiveStreamSet();
+  const leftover = recorded.filter((id) => !stillOpen.has(id));
+  writeActiveStreamSet(recorded.filter((id) => stillOpen.has(id)));
   if (leftover.length === 0) return;
 
   try {

@@ -5,7 +5,6 @@ import useMediaQuery from "@mui/material/useMediaQuery";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { App } from "./components/App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { cleanupOrphanedLogStreams } from "./api/containers";
 import { TerminalThemeProvider } from "./state/TerminalThemeContext";
 
 // `@docker/docker-mui-theme`'s `DockerMuiThemeProvider` reads its palette off
@@ -18,14 +17,11 @@ function Root() {
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)", { noSsr: true });
   const theme = React.useMemo(() => createTheme({ palette: { mode: prefersDark ? "dark" : "light" } }), [prefersDark]);
 
-  // Once, on startup: sweep up any `docker logs -f` processes orphaned by a
-  // previous session that didn't shut down cleanly (see
-  // cleanupOrphanedLogStreams for why that's a real risk here). Runs from an
-  // effect - after mount, not at module load - for the same reason ddClient
-  // access is lazy: don't gate the whole panel's first paint on it.
-  React.useEffect(() => {
-    cleanupOrphanedLogStreams();
-  }, []);
+  // NB: the startup sweep for orphaned `docker logs -f` processes lives in
+  // App's mount effect, not here - it needs the list of containers the
+  // restored workspace already has open so it doesn't kill their freshly
+  // started streams. It's still an effect (after mount, not at module load),
+  // for the same reason ddClient access is lazy: don't gate first paint on it.
 
   return (
     <ThemeProvider theme={theme}>

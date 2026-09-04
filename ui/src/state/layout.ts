@@ -10,7 +10,7 @@ function emptyPane(): PaneState {
   return { id: nextId("pane"), tabs: [], activeTabId: null, viewMode: "tabs" };
 }
 
-const PANE_COUNT: Record<PaneLayout, number> = {
+export const PANE_COUNT: Record<PaneLayout, number> = {
   "1": 1,
   "2h": 2,
   "2v": 2,
@@ -104,6 +104,11 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
       };
 
     case "FOCUS_PANE":
+      // Dispatched from every mousedown anywhere in a pane, so returning a
+      // new state object unconditionally would re-render the whole grid - and
+      // now also rewrite the persisted workspace - on every single click
+      // inside the already-focused pane.
+      if (state.focusedPaneId === action.paneId) return state;
       return { ...state, focusedPaneId: action.paneId };
 
     case "TOGGLE_TIMESTAMPS":
