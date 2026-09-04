@@ -22,7 +22,7 @@ const TIPS: { title: string; body: string }[] = [
   },
   {
     title: "Ctrl+F / Cmd+F",
-    body: 'Jumps straight to the "Find in log" box of whichever pane is currently focused, instead of the browser\'s own find. Enter jumps to the next match, Shift+Enter to the previous one.',
+    body: 'Jumps straight to the "Find in log" box of whichever pane is currently focused, instead of the browser\'s own find. Every match gets highlighted as you type, with a count (e.g. "2/17") next to the box. Enter or the ▾ button jumps to the next match, Shift+Enter or the ▴ button to the previous one, and Escape clears the search.',
   },
   {
     title: "Change how much history a tab loads",

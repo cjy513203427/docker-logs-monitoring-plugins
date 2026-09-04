@@ -251,6 +251,32 @@ touching it.
   phase (`addEventListener(..., true)`) to win the race against a focused
   terminal - see the Ctrl+Tab listener in `App.tsx` and the Ctrl+F one in
   `LogPane.tsx`.
+- **xterm.js's decoration API is "proposed" and throws unless the Terminal
+  is constructed with `allowProposedApi: true`.** `SearchAddon`'s
+  match highlighting (the `decorations` option on
+  `findNext`/`findPrevious`) draws every match via
+  `terminal.registerDecoration()`, which starts with a `_checkProposedApi()`
+  that throws `You must set the allowProposedApi option to true to use
+  proposed API`. The throw lands inside our own keystroke/find handler, so
+  `ErrorBoundary` never sees it and nothing appears on screen - search just
+  silently highlights nothing and the match counter stays blank, looking
+  exactly like "the new build didn't install". `tsc` cannot catch this
+  (the option is optional, and addon-search's types say nothing about
+  needing it), and it *shipped broken once* for precisely that reason -
+  "it compiles" is not evidence that terminal-level features work. See the
+  Terminal options in `XtermLog.tsx`; `overviewRulerWidth` must also be
+  non-zero there or the decorations' scrollbar tick marks (which is how you
+  see matches that are outside the current viewport) never render, since
+  xterm only builds the overview-ruler renderer when that option is set.
+- **`docker extension rm` deletes the built image too, so `rm` must come
+  *before* `docker build`, not after.** It prints `Extension image
+  local/docker-logs-console:0.3.0 removed` and really does drop it from the
+  local daemon. The original `make update` (`update: build` + `rm` +
+  `install`) therefore destroyed the image it had just built, and the
+  `install` that followed fell back to trying to *pull* `local/...` -
+  failing with `pull access denied` and leaving Docker Desktop with no Logs
+  Console tab at all. `make update` now runs `rm`, *then* `build`, then
+  `install`; don't reorder it back.
 - **Neither `docker extension update` nor plain `docker extension install
   --force` alone can move an already-installed copy of this extension to a
   new local tag - confirmed by hand, not assumed.** `docker extension

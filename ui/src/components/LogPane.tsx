@@ -20,11 +20,13 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SearchIcon from "@mui/icons-material/Search";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import CallMergeIcon from "@mui/icons-material/CallMerge";
 import { CONTAINER_DRAG_MIME_TYPE, type ContainerInfo, type PaneState, type PaneViewMode, type TailLines } from "../types";
 import type { LayoutAction } from "../state/layout";
-import { XtermLog, type XtermLogHandle } from "./XtermLog";
+import { XtermLog, type XtermLogHandle, type SearchResultInfo } from "./XtermLog";
 import { MergedLogView } from "./MergedLogView";
 import { colorForContainer } from "../utils/colors";
 
@@ -43,8 +45,24 @@ const TAIL_OPTIONS: { value: TailLines; label: string }[] = [
 export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
   const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResultInfo | null>(null);
   const logRefs = useRef(new Map<string, XtermLogHandle | null>());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // The match count/position is per-tab (each tab has its own SearchAddon
+  // instance - see XtermLog), but the toolbar above is per-pane, so drop
+  // whatever the previously-active tab reported whenever the active tab
+  // changes rather than showing its stale count against the new one.
+  useEffect(() => {
+    setSearchResults(null);
+  }, [activeTab?.id]);
+
+  const runSearch = (direction: "next" | "previous") => {
+    if (!activeTab || !search) return;
+    const handle = logRefs.current.get(activeTab.id);
+    if (direction === "next") handle?.findNext(search);
+    else handle?.findPrevious(search);
+  };
   const [tailMenu, setTailMenu] = useState<{ tabId: string; top: number; left: number } | null>(null);
   // Counter, not a boolean: dragenter/dragleave fire for every child element
   // the pointer crosses too, not just the pane's own boundary, so a naive
@@ -294,15 +312,70 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
                 inputRef={searchInputRef}
                 placeholder="Find in log"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSearch(value);
                   const handle = logRefs.current.get(activeTab.id);
-                  if (e.shiftKey) handle?.findPrevious(search);
-                  else handle?.findNext(search);
+                  if (!value) {
+                    // Empty search: drop the highlights instead of leaving
+                    // the last term's matches lit up with nothing to jump
+                    // between.
+                    handle?.clearSearch();
+                  } else {
+                    // `incremental` re-highlights on every keystroke without
+                    // jumping to a brand-new match each time, matching how a
+                    // browser's own find-in-page behaves while typing.
+                    handle?.findNext(value, true);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    runSearch(e.shiftKey ? "previous" : "next");
+                  } else if (e.key === "Escape") {
+                    setSearch("");
+                    logRefs.current.get(activeTab.id)?.clearSearch();
+                  }
                 }}
                 sx={{ ml: 0.5, fontSize: 13, width: 160 }}
               />
+              {search && (
+                <>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mx: 0.5, minWidth: 36, textAlign: "center", flexShrink: 0 }}
+                  >
+                    {searchResults
+                      ? searchResults.resultCount === 0
+                        ? "0/0"
+                        : `${searchResults.resultIndex + 1}/${searchResults.resultCount}`
+                      : ""}
+                  </Typography>
+                  <Tooltip title="Previous match (Shift+Enter)">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={!searchResults || searchResults.resultCount === 0}
+                        onClick={() => runSearch("previous")}
+                      >
+                        <KeyboardArrowUpIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Next match (Enter)">
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={!searchResults || searchResults.resultCount === 0}
+                        onClick={() => runSearch("next")}
+                      >
+                        <KeyboardArrowDownIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              )}
             </Box>
           </Box>
 
@@ -325,6 +398,15 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
                   following={tab.following}
                   tailLines={tab.tailLines}
                   streamEpoch={tab.streamEpoch}
+                  onSearchResults={(results) => {
+                    // XtermLog instances for every open tab stay mounted
+                    // (just hidden - see the visibility toggle above) so
+                    // their streams keep following in the background; guard
+                    // against a background tab's own re-highlight-on-new-
+                    // lines updates overwriting the toolbar for whichever
+                    // tab is actually focused right now.
+                    if (tab.id === activeTab.id) setSearchResults(results);
+                  }}
                 />
               </Box>
             ))}

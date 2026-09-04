@@ -23,8 +23,17 @@ install: build ## Build and install the extension into Docker Desktop
 # install, is the combination that actually works. The leading `-` tells
 # Make to ignore `rm`'s exit code so this doesn't fail on a first-ever
 # install with nothing to remove yet.
-update: build ## Rebuild and update the already-installed extension
+#
+# NB: `rm` runs BEFORE the build (hence no `update: build` prerequisite and
+# an explicit `docker build` line here). `docker extension rm` also deletes
+# the extension's *image* from the local daemon - it prints "Extension image
+# local/docker-logs-console:0.3.0 removed" - so building first and removing
+# second throws the fresh build away, and the following `install` then falls
+# back to trying to *pull* `local/...` and dies with "pull access denied"
+# while leaving the extension uninstalled. Confirmed by hand.
+update: ## Rebuild and update the already-installed extension
 	-docker extension rm $(IMAGE)
+	docker build -t $(IMAGE):$(TAG) .
 	docker extension install $(IMAGE):$(TAG) --force
 
 remove: ## Remove the installed extension
