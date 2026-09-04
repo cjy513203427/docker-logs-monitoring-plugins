@@ -251,16 +251,23 @@ touching it.
   phase (`addEventListener(..., true)`) to win the race against a focused
   terminal - see the Ctrl+Tab listener in `App.tsx` and the Ctrl+F one in
   `LogPane.tsx`.
-- **`docker extension update` is unusable for this repo's locally-built
-  image, and fails destructively.** It is "remove and re-install", and the
-  re-install step tries to *pull* `local/docker-logs-console:0.2.0` from a
-  registry instead of using the image `docker build` just put in the local
-  daemon - so it errors with `pull access denied ... repository does not
-  exist` **after** having already removed the extension, leaving Docker
-  Desktop with no Logs Console tab at all. `make update` therefore runs
-  `docker extension install --force` (same as `make install`), which
-  reinstalls from the local image. Don't "restore" the `docker extension
-  update` call.
+- **Neither `docker extension update` nor plain `docker extension install
+  --force` alone can move an already-installed copy of this extension to a
+  new local tag - confirmed by hand, not assumed.** `docker extension
+  update` is "remove and re-install", and the re-install step tries to
+  *pull* the image from a registry instead of using the one `docker build`
+  just put in the local daemon - it errors with `pull access denied ...
+  repository does not exist` **after** having already removed the
+  extension, leaving Docker Desktop with no Logs Console tab at all. Trying
+  `docker extension install <repo>:<newtag> --force` instead (skipping
+  `update` entirely) *also* fails, with "already installed", whenever any
+  tag of that repo is currently installed - `--force` only suppresses
+  install's confirmation prompt, it doesn't override that check, and it
+  doesn't matter that the requested tag differs from the installed one.
+  The combination that actually works - `docker extension rm $(IMAGE)`
+  (bare repo, no tag - removes whatever tag is currently installed) *then*
+  `docker extension install $(IMAGE):$(TAG) --force` - is what `make
+  update` runs. Don't "simplify" it back to just one of the two calls.
 - **After changing UI code you must actually rebuild *and* reinstall before
   testing** - a panel that is already open keeps serving the JS bundle it
   loaded, and neither editing files nor `npm run build` alone changes what

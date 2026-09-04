@@ -1,5 +1,5 @@
 IMAGE=local/docker-logs-console
-TAG=0.2.0
+TAG=0.3.0
 
 .PHONY: build install update remove validate dev-debug dev-ui reset-dev help
 
@@ -9,12 +9,22 @@ build: ## Build the extension image
 install: build ## Build and install the extension into Docker Desktop
 	docker extension install $(IMAGE):$(TAG) --force
 
-# NB: deliberately `install --force`, not `docker extension update`. The
-# latter removes the extension and then tries to *pull* the image from a
-# registry - which always fails for a locally-built `local/...` image
-# ("pull access denied ... repository does not exist") and leaves the
-# extension uninstalled. `install --force` reinstalls from the local image.
+# NB: deliberately `rm` + `install --force`, not `docker extension update`.
+# `update` removes the extension and then tries to *pull* the new image from
+# a registry - which always fails for a locally-built `local/...` image
+# ("pull access denied ... repository does not exist"), leaving the
+# extension uninstalled. And `install --force` alone isn't enough either:
+# `install` refuses with "already installed" if *any* tag of this repo is
+# currently installed, regardless of --force or whether the requested tag
+# differs (confirmed by hand going from an installed 0.2.0 to a freshly
+# built 0.3.0 - --force only suppresses install's confirmation prompt, not
+# this check). `docker extension rm $(IMAGE)` (bare repo, no tag needed -
+# it removes whatever tag is currently installed) first, then a plain
+# install, is the combination that actually works. The leading `-` tells
+# Make to ignore `rm`'s exit code so this doesn't fail on a first-ever
+# install with nothing to remove yet.
 update: build ## Rebuild and update the already-installed extension
+	-docker extension rm $(IMAGE)
 	docker extension install $(IMAGE):$(TAG) --force
 
 remove: ## Remove the installed extension

@@ -4,6 +4,34 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); this project
 doesn't (yet) follow strict semantic versioning guarantees - it's pre-1.0.
 
+## [0.3.0]
+
+### Fixed
+- **Log tabs going silently stale**: an open tab's `docker logs -f` stream
+  was bound to a fixed container ID for its whole lifetime and never
+  reconnected. Two real failure modes this caused (both surfaced testing
+  against InterSystems IRIS containers, which get restarted/recreated more
+  than most): a container stopping and starting again under the *same* id
+  wouldn't resume emitting output, and a container getting *recreated*
+  (removed, new one started under the same name - a Compose redeploy, a
+  health-check-driven recreate) left the tab following the now-dead old id
+  forever. Neither case showed any visible error. Fixed by reconciling
+  every open tab against each fresh container list (`SYNC_CONTAINERS`):
+  forces a reconnect on a same-id restart, and rebinds the tab to the new
+  id when a same-named container replaces the old one.
+- `make update` deleted the installed extension and then failed outright
+  (`docker extension update` tries to *pull* the locally-built image from a
+  registry instead of using the one `docker build` already produced) -
+  changed to `docker extension install --force`, same as `make install`.
+
+### Added
+- **Ctrl+F / Cmd+F** jumps straight to the focused pane's "Find in log" box
+  instead of the browser's own find - needed its own capture-phase
+  listener for the same reason Ctrl+Tab does (xterm.js's hidden textarea
+  swallows a plain `Ctrl`/`Cmd`+letter reaching a focused terminal,
+  regardless of `disableStdin`). Shift+Enter in that box now also jumps to
+  the previous match, not just Enter for the next.
+
 ## [0.2.0]
 
 ### Added
