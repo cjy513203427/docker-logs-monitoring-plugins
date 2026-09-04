@@ -26,7 +26,7 @@ All build/install commands run from the repo root (`make` wraps plain
 
 ```sh
 make install     # docker build + docker extension install --force
-make update       # rebuild and update the already-installed extension
+make update       # rebuild + reinstall (also `install --force` - see the gotcha below)
 make remove       # docker extension rm
 make validate     # docker build + docker extension validate
 ```
@@ -58,10 +58,11 @@ harness for this checked in, but it's the pattern to reach for.
 - Docker Desktop with the `docker extension` CLI.
 - Node.js 18+ for building the UI.
 - Docker Desktop must actually be running with the extension **reinstalled**
-  (`docker extension update ... --force`, not just a rebuilt image) to see
-  changes — an already-open panel does not reliably reload on its own; if
-  it still looks stale after that, use `make dev-ui` to point it at a live
-  Vite dev server instead, which forces a real navigation.
+  (`make update`, i.e. `docker extension install --force` — not just a
+  rebuilt image, and *not* `docker extension update`, see the Gotchas) to
+  see changes — an already-open panel does not reliably reload on its own;
+  if it still looks stale after that, use `make dev-ui` to point it at a
+  live Vite dev server instead, which forces a real navigation.
 
 ## Architecture
 
@@ -234,13 +235,42 @@ touching it.
   `file://` (e.g. `C:\assets\`) instead of `index.html`'s own directory, so
   every asset 404s and the panel is blank. Relative paths resolve
   correctly under both `file://` and the Vite dev server.
-- **xterm.js swallows a bare `Tab` keydown**, Ctrl held or not, via a
-  capture-phase listener on its own hidden textarea (`cancel()` calls
-  `preventDefault()` + `stopPropagation()` unconditionally for keyCode 9
-  unless Shift is held). Any future global keyboard shortcut that uses Tab
-  needs its own listener registered on the *capture* phase
-  (`addEventListener(..., true)`) to win the race against a focused
-  terminal - see the Ctrl+Tab listener in `App.tsx`.
+- **xterm.js's hidden per-terminal textarea swallows more than just Tab** -
+  this generalizes past the original Tab finding below; confirmed a second
+  time for Ctrl+F while wiring up the pane-search shortcut (see the Ctrl+F
+  listener in `LogPane.tsx`). Reading `evaluateKeyboardEvent`'s source
+  (`node_modules/@xterm/xterm/lib/xterm.js`) directly (not guessing) shows
+  *any* plain `Ctrl+<A-Z>` reaching a focused terminal gets mapped to its
+  control-character equivalent and unconditionally
+  `preventDefault()`+`stopPropagation()`'d via `cancel(e, true)` -
+  **regardless of `disableStdin: true`**, which only suppresses sending the
+  resulting byte onward (`CoreService.triggerDataEvent` short-circuits on
+  it), not the swallow itself. Concretely for Tab: keyCode 9, unless Shift
+  is held. Any future global keyboard shortcut that's a bare Tab or a plain
+  `Ctrl`/`Cmd`+letter needs its own listener registered on the *capture*
+  phase (`addEventListener(..., true)`) to win the race against a focused
+  terminal - see the Ctrl+Tab listener in `App.tsx` and the Ctrl+F one in
+  `LogPane.tsx`.
+- **`docker extension update` is unusable for this repo's locally-built
+  image, and fails destructively.** It is "remove and re-install", and the
+  re-install step tries to *pull* `local/docker-logs-console:0.2.0` from a
+  registry instead of using the image `docker build` just put in the local
+  daemon - so it errors with `pull access denied ... repository does not
+  exist` **after** having already removed the extension, leaving Docker
+  Desktop with no Logs Console tab at all. `make update` therefore runs
+  `docker extension install --force` (same as `make install`), which
+  reinstalls from the local image. Don't "restore" the `docker extension
+  update` call.
+- **After changing UI code you must actually rebuild *and* reinstall before
+  testing** - a panel that is already open keeps serving the JS bundle it
+  loaded, and neither editing files nor `npm run build` alone changes what
+  Docker Desktop serves. Fast way to tell new code from stale without
+  opening devtools: the Tips dialog (the light-bulb button in the top bar)
+  lists the keyboard shortcuts, so a shortcut you just added showing up
+  there proves the panel is running the new bundle. The installed bundle
+  lives at `%APPDATA%/Docker/extensions/local_docker-logs-console/ui/ui/assets/`
+  - Vite content-hashes the filename, so grepping there is a definitive
+  check of what is actually installed.
 - **An open tab's `docker logs -f` process does not track its container
   across a restart or recreation on its own — it's bound to a fixed
   container ID for the tab's whole lifetime** (`OPEN_TAB` sets

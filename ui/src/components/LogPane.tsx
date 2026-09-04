@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, MouseEvent } from "react";
 import Box from "@mui/material/Box";
 import Tabs from "@mui/material/Tabs";
@@ -44,11 +44,40 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
   const activeTab = pane.tabs.find((t) => t.id === pane.activeTabId) ?? null;
   const [search, setSearch] = useState("");
   const logRefs = useRef(new Map<string, XtermLogHandle | null>());
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [tailMenu, setTailMenu] = useState<{ tabId: string; top: number; left: number } | null>(null);
   // Counter, not a boolean: dragenter/dragleave fire for every child element
   // the pointer crosses too, not just the pane's own boundary, so a naive
   // boolean flickers on/off as the drag moves over tabs/content inside.
   const [dragOverDepth, setDragOverDepth] = useState(0);
+
+  // Ctrl+F / Cmd+F focuses this pane's "Find in log" box instead of the
+  // browser's own find - only for whichever pane is currently focused, and
+  // only when that box actually exists (the "tabs" view with an active tab;
+  // "merged" mode has no search UI of its own).
+  //
+  // Registered on the *capture* phase for the same reason as the Ctrl+Tab
+  // listener in App.tsx: xterm.js's hidden textarea has its own capture-
+  // phase keydown listener, and - confirmed by reading its source - a plain
+  // Ctrl+F reaching a focused terminal gets mapped to the ACK control
+  // character and unconditionally preventDefault()+stopPropagation()'d
+  // there (this happens *despite* `disableStdin: true` on XtermLog's
+  // Terminal - disableStdin only suppresses sending the resulting byte
+  // onward, not the swallow itself - same root cause as the Tab gotcha).
+  // A bubble-phase listener would never see the keydown at all once any
+  // pane's terminal has focus; capture always visits window first.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isFocused || pane.viewMode === "merged" || !activeTab) return;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "f") return;
+      e.preventDefault();
+      e.stopPropagation();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isFocused, pane.viewMode, activeTab]);
 
   const openTailMenu = (e: MouseEvent, tabId: string) => {
     e.preventDefault();
@@ -262,11 +291,15 @@ export function LogPane({ pane, isFocused, dispatch }: LogPaneProps) {
             >
               <SearchIcon fontSize="small" sx={{ opacity: 0.6 }} />
               <InputBase
+                inputRef={searchInputRef}
                 placeholder="Find in log"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") logRefs.current.get(activeTab.id)?.findNext(search);
+                  if (e.key !== "Enter") return;
+                  const handle = logRefs.current.get(activeTab.id);
+                  if (e.shiftKey) handle?.findPrevious(search);
+                  else handle?.findNext(search);
                 }}
                 sx={{ ml: 0.5, fontSize: 13, width: 160 }}
               />

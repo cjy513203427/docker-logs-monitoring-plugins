@@ -21,6 +21,10 @@ const TIPS: { title: string; body: string }[] = [
     body: "Cycles through the tabs of whichever pane is currently focused, same as browsers and VS Code.",
   },
   {
+    title: "Ctrl+F / Cmd+F",
+    body: 'Jumps straight to the "Find in log" box of whichever pane is currently focused, instead of the browser\'s own find. Enter jumps to the next match, Shift+Enter to the previous one.',
+  },
+  {
     title: "Change how much history a tab loads",
     body: 'Click the "last 500" chip in a tab\'s toolbar (or right-click the tab itself) to switch between the last 500 lines, last 5,000, or full history.',
   },

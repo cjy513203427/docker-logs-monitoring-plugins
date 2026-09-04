@@ -9,8 +9,13 @@ build: ## Build the extension image
 install: build ## Build and install the extension into Docker Desktop
 	docker extension install $(IMAGE):$(TAG) --force
 
+# NB: deliberately `install --force`, not `docker extension update`. The
+# latter removes the extension and then tries to *pull* the image from a
+# registry - which always fails for a locally-built `local/...` image
+# ("pull access denied ... repository does not exist") and leaves the
+# extension uninstalled. `install --force` reinstalls from the local image.
 update: build ## Rebuild and update the already-installed extension
-	docker extension update $(IMAGE):$(TAG)
+	docker extension install $(IMAGE):$(TAG) --force
 
 remove: ## Remove the installed extension
 	docker extension rm $(IMAGE):$(TAG)
