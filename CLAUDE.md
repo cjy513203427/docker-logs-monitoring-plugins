@@ -108,13 +108,24 @@ Everything lives under `ui/src/`. The extension is a single React app
       (`splitOutputLines: false`) so it can feed xterm.js byte-for-byte.
       `tail` is caller-controlled (500 / 5000 / "all", see
       `TabState.tailLines`), not hardcoded.
-    - `cleanupOrphanedLogStreams()` — every `startLogStream` call records
-      its containerId in `localStorage`; this function (called once from
-      `main.tsx` on startup) reads whatever's left over from a previous,
-      uncleanly-terminated session, clears the bookkeeping, and asks the
-      host binary to kill any matching orphaned processes. See "Host
-      binaries" below for the actual kill mechanism.
+    - `cleanupOrphanedLogStreams(activeContainerIds)` — every
+      `startLogStream` call records its containerId in `localStorage`; this
+      function (called once from **`App.tsx`**'s mount effect, not
+      `main.tsx` — it needs the restored workspace's container ids) reads
+      whatever's left over from a previous, uncleanly-terminated session,
+      keeps the ids still open in this session, and asks the host binary to
+      kill the rest. See the Gotchas entry on why that argument is
+      load-bearing, and "Host binaries" below for the kill mechanism.
 
+- **`state/persistence.ts`** — saves and restores the workspaces. A
+  *workspace* is one named `LayoutState` (grid, divider positions, open
+  tabs and their settings); several are kept side by side and switched from
+  the top-bar dropdown, all under the single `logs-console:layout`
+  localStorage key. Everything read back is validated field-by-field and
+  discarded wholesale if it doesn't fit (see the Gotchas), and the
+  `SCHEMA_VERSION` 1 → 2 step *migrates* the old single-state payload into
+  one workspace rather than dropping it — a schema bump must never be the
+  reason someone loses their open tabs.
 - **`state/layout.ts`** — a single `useReducer` reducer (`layoutReducer`)
   that owns the whole split-screen/tab model, held in `App.tsx`. Key shape
   (see `types.ts`): `LayoutState` has a `PaneLayout`
@@ -125,7 +136,9 @@ Everything lives under `ui/src/`. The extension is a single React app
   count merges the overflow panes' tabs into the last remaining pane rather
   than dropping them; growing adds empty panes. Both are pane-*count*
   driven, not layout-name driven, so adding another grid size is just
-  another `PANE_COUNT` entry. Tab identity (`TabState.id`) is distinct from
+  another `GRID_DIMS` entry (`PANE_COUNT` is derived from it - rows x cols -
+  and `PaneGrid` renders straight off it, so one source of truth for "what
+  shape is this layout"). Tab identity (`TabState.id`) is distinct from
   `containerId` so the same container can be opened in more than one pane
   at once. `CYCLE_TAB` (Ctrl+Tab) moves `activeTabId` forward/back within
   one pane's tabs, wrapping around.
@@ -197,6 +210,15 @@ Everything lives under `ui/src/`. The extension is a single React app
     the entire panel with zero visible error" bugs (the theme provider, and
     the eager `ddClient` access) — this turns any future one into a
     visible on-screen message instead of a silent blank panel.
+  - `WorkspacePicker.tsx` — top-bar dropdown listing the saved workspaces,
+    plus new/duplicate/rename/delete. Deliberately has **no Save button**:
+    edits land in the selected workspace as they happen (`App.tsx` persists
+    on every state change), matching how the rest of the panel already
+    behaves. Deleting the last remaining workspace is blocked — there'd be
+    nothing to fall back to. `App.tsx` holds the active workspace's state
+    twice on purpose (live in the reducer, stored in the `workspaces`
+    array); its `snapshot()` helper folds the live one back in and every
+    switch/create/delete path goes through it.
   - `Tips.tsx` — in-app help dialog (💡 button in the top bar) documenting
     the features that have no other discovery path (drag-to-pane,
     Ctrl+Tab, the tail-length chip, merged view).
@@ -350,6 +372,24 @@ touching it.
   session still owns them. Don't drop that argument "to simplify": the
   symptom is a restored tab that looks perfectly normal and silently never
   shows a line.
+- **Allotment's `defaultSizes` are proportions, not pixels — verified, not
+  assumed.** They're only ever compared against their own sum: on mount the
+  React wrapper builds `descriptor: { size: sizes.reduce(sum), views }` and
+  SplitView immediately calls `saveProportions()` (`size / contentSize`),
+  laying out against the real container from there. So the raw pixel arrays
+  `onDragEnd` hands back can be stored and replayed as-is, with no rescaling
+  on our side. Confirmed with a Playwright run at three viewport widths — a
+  39/61 split came back exactly 39/61 at 900, 1400 and 1920px (the only
+  deviation is a pane's `minSize` floor clamping an extreme ratio on a
+  narrow window, which is correct). Two things that do matter: the arrays
+  must be keyed **per layout** (`LayoutState.sizes`) or 2x2's proportions
+  leak into 2h's, and `defaultSizes` is read **only on mount** — restoring
+  saved sizes rides on the `key={state.layout}` remount `PaneGrid` already
+  does for the orientation-flip bug. A wrong-length array is not a crash but
+  not harmless either: Allotment logs "Expected N children based on
+  defaultSizes but found M" and silently ignores the whole array, which
+  reads as "my divider positions were forgotten" — hence the length checks
+  in both `persistence.ts` and `PaneGrid`.
 - **A render crash before first mount looks identical to "nothing
   happened".** Both the theme-provider bug and the eager-`ddClient` bug
   produced a totally blank panel with no console output visible anywhere

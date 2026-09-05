@@ -37,6 +37,10 @@ const TIPS: { title: string; body: string }[] = [
     body: 'The All/Running/Stopped row filters by container state, on top of the text search. Containers started by the same Compose project are grouped into a collapsible section automatically.',
   },
   {
+    title: "Saved layouts (the dropdown next to the title)",
+    body: "Each saved layout is a whole arrangement - the grid, where you dragged the dividers, and which containers are open in which pane. Switch between e.g. a two-pane \"api + database\" setup and a 3x3 \"everything\" one from the dropdown; the menu there also creates, duplicates, renames and deletes them. There is no Save button: whatever you change goes straight into the selected layout.",
+  },
+  {
     title: "Your workspace is remembered",
     body: "The layout, which containers are open in which pane, and each tab's timestamp/history settings are saved automatically, so leaving the Logs Console tab and coming back later restores the same workspace instead of an empty panel. Restored tabs re-read their history and start following again; a tab you had paused comes back running.",
   },

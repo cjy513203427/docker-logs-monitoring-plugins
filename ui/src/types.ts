@@ -69,4 +69,43 @@ export interface LayoutState {
   layout: PaneLayout;
   panes: PaneState[];
   focusedPaneId: string;
+  /**
+   * Divider (sash) positions, keyed by the layout they belong to so that
+   * switching 2x2 -> 2h -> 2x2 doesn't cross-contaminate one grid's
+   * proportions with another's. Absent/short entries just mean "never
+   * dragged" - the grid falls back to an even split. See PaneSizes.
+   */
+  sizes?: Partial<Record<PaneLayout, PaneSizes>>;
+}
+
+/**
+ * Where the dividers sit for one `PaneLayout`, mirroring how PaneGrid nests
+ * its Allotments: one outer vertical split of rows, then one horizontal
+ * split of columns per row.
+ *
+ * The numbers are whatever Allotment reported at the end of a drag, i.e.
+ * pixels - but only their *ratios* ever matter. Allotment turns `defaultSizes`
+ * into proportions immediately on mount (`size / sum(sizes)`, see
+ * `saveProportions` in its source) and lays out against the real container
+ * from there, so a layout saved on a wide monitor restores correctly on a
+ * narrow one with no rescaling on our side.
+ *
+ * An empty array means "not set yet"; `cols[rowIndex]` is that row's split.
+ */
+export interface PaneSizes {
+  rows: number[];
+  cols: number[][];
+}
+
+/**
+ * A named, self-contained workspace: a whole `LayoutState` (grid shape,
+ * divider positions, which containers are open in which pane, and each
+ * tab's settings) under a user-editable name, switchable from the top bar.
+ * Lets one setup be "debug backend" (two panes, api + postgres) and another
+ * "everything" (3x3), instead of rebuilding the arrangement by hand.
+ */
+export interface Workspace {
+  id: string;
+  name: string;
+  state: LayoutState;
 }

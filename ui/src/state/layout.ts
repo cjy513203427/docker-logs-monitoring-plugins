@@ -1,4 +1,4 @@
-import type { ContainerInfo, LayoutState, PaneLayout, PaneState, PaneViewMode, TabState, TailLines } from "../types";
+import type { ContainerInfo, LayoutState, PaneLayout, PaneSizes, PaneState, PaneViewMode, TabState, TailLines } from "../types";
 
 let idCounter = 0;
 function nextId(prefix: string): string {
@@ -10,14 +10,21 @@ function emptyPane(): PaneState {
   return { id: nextId("pane"), tabs: [], activeTabId: null, viewMode: "tabs" };
 }
 
-export const PANE_COUNT: Record<PaneLayout, number> = {
-  "1": 1,
-  "2h": 2,
-  "2v": 2,
-  "2x2": 4,
-  "3x2": 6,
-  "3x3": 9,
+/** Rows x columns each layout resolves to. The single source of truth for
+ * both how PaneGrid nests its Allotments and how many panes a layout has -
+ * adding another grid size is one entry here and nothing else. */
+export const GRID_DIMS: Record<PaneLayout, { rows: number; cols: number }> = {
+  "1": { rows: 1, cols: 1 },
+  "2h": { rows: 1, cols: 2 },
+  "2v": { rows: 2, cols: 1 },
+  "2x2": { rows: 2, cols: 2 },
+  "3x2": { rows: 2, cols: 3 },
+  "3x3": { rows: 3, cols: 3 },
 };
+
+export const PANE_COUNT: Record<PaneLayout, number> = Object.fromEntries(
+  Object.entries(GRID_DIMS).map(([layout, { rows, cols }]) => [layout, rows * cols]),
+) as Record<PaneLayout, number>;
 
 export function initialLayoutState(): LayoutState {
   const pane = emptyPane();
@@ -35,7 +42,18 @@ export type LayoutAction =
   | { type: "SET_TAIL_LINES"; paneId: string; tabId: string; tailLines: TailLines }
   | { type: "SET_PANE_VIEW_MODE"; paneId: string; viewMode: PaneViewMode }
   | { type: "CYCLE_TAB"; paneId: string; direction: "next" | "prev" }
-  | { type: "SYNC_CONTAINERS"; containers: ContainerInfo[] };
+  | { type: "SYNC_CONTAINERS"; containers: ContainerInfo[] }
+  | { type: "SET_ROW_SIZES"; sizes: number[] }
+  | { type: "SET_COL_SIZES"; rowIndex: number; sizes: number[] }
+  | { type: "LOAD_STATE"; state: LayoutState };
+
+function currentSizes(state: LayoutState): PaneSizes {
+  return state.sizes?.[state.layout] ?? { rows: [], cols: [] };
+}
+
+function withSizes(state: LayoutState, sizes: PaneSizes): LayoutState {
+  return { ...state, sizes: { ...state.sizes, [state.layout]: sizes } };
+}
 
 function withPane(state: LayoutState, paneId: string, update: (pane: PaneState) => PaneState): LayoutState {
   return {
@@ -179,6 +197,30 @@ export function layoutReducer(state: LayoutState, action: LayoutAction): LayoutS
       });
       return anyPaneChanged ? { ...state, panes } : state;
     }
+
+    // Divider drags, recorded against the *current* layout only (see
+    // LayoutState.sizes for why they're keyed by layout). Dispatched from
+    // Allotment's onDragEnd rather than onChange: onChange fires on every
+    // animation frame of a drag, which would mean a localStorage write per
+    // frame for a value nobody can observe mid-drag anyway.
+    case "SET_ROW_SIZES": {
+      const current = currentSizes(state);
+      return withSizes(state, { ...current, rows: action.sizes });
+    }
+
+    case "SET_COL_SIZES": {
+      const current = currentSizes(state);
+      const cols = [...current.cols];
+      while (cols.length <= action.rowIndex) cols.push([]);
+      cols[action.rowIndex] = action.sizes;
+      return withSizes(state, { ...current, cols });
+    }
+
+    // Wholesale swap, used when switching to another saved workspace. The
+    // incoming state has already been validated - it either came from this
+    // session or through state/persistence.ts's parser.
+    case "LOAD_STATE":
+      return action.state;
 
     case "CYCLE_TAB":
       return withPane(state, action.paneId, (pane) => {

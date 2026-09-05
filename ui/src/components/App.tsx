@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -11,10 +11,11 @@ import GridViewIcon from "@mui/icons-material/GridView";
 import ViewComfyIcon from "@mui/icons-material/ViewComfy";
 import Grid3x3Icon from "@mui/icons-material/Grid3x3";
 import type { PaneLayout } from "../types";
-import { layoutReducer } from "../state/layout";
-import { openContainerIds, persistLayoutState, restoreLayoutState } from "../state/persistence";
+import { initialLayoutState, layoutReducer } from "../state/layout";
+import { makeWorkspace, openContainerIds, persistWorkspaces, restoreWorkspaces } from "../state/persistence";
 import { cleanupOrphanedLogStreams } from "../api/containers";
 import { ContainerPicker } from "./ContainerPicker";
+import { WorkspacePicker } from "./WorkspacePicker";
 import { PaneGrid } from "./PaneGrid";
 import { Tips } from "./Tips";
 import { TerminalThemePicker } from "./TerminalThemePicker";
@@ -33,11 +34,71 @@ export function App() {
   // rebuilds the extension's UI every time you navigate away from the tab and
   // back, so a default-initialised workspace means every open tab silently
   // disappears whenever the user looks at anything else.
-  const [state, dispatch] = useReducer(layoutReducer, undefined, restoreLayoutState);
+  //
+  // Each saved workspace is a whole LayoutState under a user-editable name
+  // (see WorkspacePicker); the reducer drives whichever one is active. useRef
+  // so the localStorage read happens once, not on every render.
+  const restored = useRef(restoreWorkspaces()).current;
+  const [workspaces, setWorkspaces] = useState(restored.workspaces);
+  const [activeId, setActiveId] = useState(restored.activeId);
+  const [state, dispatch] = useReducer(
+    layoutReducer,
+    restored.workspaces.find((w) => w.id === restored.activeId)!.state,
+  );
 
+  // The active workspace's state deliberately exists twice: the reducer holds
+  // the live one, `workspaces` holds the last stored copy. This folds the live
+  // one back in, and every save/switch/delete path goes through it - so the
+  // stored copy being momentarily stale never matters.
+  const snapshot = useCallback(
+    () => workspaces.map((w) => (w.id === activeId ? { ...w, state } : w)),
+    [workspaces, activeId, state],
+  );
+
+  // No Save button anywhere: edits land in the selected workspace as you make
+  // them, same as the rest of the panel's persistence.
   useEffect(() => {
-    persistLayoutState(state);
-  }, [state]);
+    persistWorkspaces({ activeId, workspaces: snapshot() });
+  }, [activeId, snapshot]);
+
+  const switchTo = (id: string) => {
+    const target = workspaces.find((w) => w.id === id);
+    if (!target || id === activeId) return;
+    setWorkspaces(snapshot());
+    setActiveId(id);
+    dispatch({ type: "LOAD_STATE", state: target.state });
+  };
+
+  const createWorkspace = (mode: "blank" | "duplicate") => {
+    // The name is only ever a label, so "Layout N" just has to not collide
+    // with one already in the list - counting workspaces alone would reuse a
+    // name that's still on screen after an earlier delete.
+    let n = workspaces.length + 1;
+    while (workspaces.some((w) => w.name === `Layout ${n}`)) n += 1;
+    const created = makeWorkspace(
+      `Layout ${n}`,
+      mode === "duplicate" ? structuredClone(state) : initialLayoutState(),
+    );
+    setWorkspaces([...snapshot(), created]);
+    setActiveId(created.id);
+    dispatch({ type: "LOAD_STATE", state: created.state });
+  };
+
+  const renameWorkspace = (id: string, name: string) => {
+    setWorkspaces((current) => current.map((w) => (w.id === id ? { ...w, name } : w)));
+  };
+
+  const deleteWorkspace = (id: string) => {
+    // WorkspacePicker disables the menu item at 1, but never let the list
+    // reach zero - there'd be nothing to fall back to.
+    if (workspaces.length <= 1) return;
+    const remaining = snapshot().filter((w) => w.id !== id);
+    setWorkspaces(remaining);
+    if (id === activeId) {
+      setActiveId(remaining[0].id);
+      dispatch({ type: "LOAD_STATE", state: remaining[0].state });
+    }
+  };
 
   // Once, on startup: sweep up any `docker logs -f` processes orphaned by a
   // previous session that didn't shut down cleanly. Lives here rather than in
@@ -87,6 +148,14 @@ export function App() {
         }}
       >
         <Typography variant="h6">Logs Console</Typography>
+        <WorkspacePicker
+          workspaces={workspaces}
+          activeId={activeId}
+          onSwitch={switchTo}
+          onCreate={createWorkspace}
+          onRename={renameWorkspace}
+          onDelete={deleteWorkspace}
+        />
         <Box sx={{ flex: 1 }} />
         <Tips />
         <TerminalThemePicker />

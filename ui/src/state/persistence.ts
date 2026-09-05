@@ -1,5 +1,5 @@
-import type { LayoutState, PaneLayout, PaneState, PaneViewMode, TabState, TailLines } from "../types";
-import { PANE_COUNT, initialLayoutState } from "./layout";
+import type { LayoutState, PaneLayout, PaneSizes, PaneState, PaneViewMode, TabState, TailLines, Workspace } from "../types";
+import { GRID_DIMS, PANE_COUNT, initialLayoutState } from "./layout";
 
 /**
  * Saves/restores the whole split-screen workspace (layout, panes, open tabs
@@ -24,10 +24,19 @@ import { PANE_COUNT, initialLayoutState } from "./layout";
 
 const STORAGE_KEY = "logs-console:layout";
 
-/** Bump when LayoutState's persisted shape changes in a way older payloads
- * can't satisfy; a mismatch is dropped silently and the user gets a fresh
- * default workspace instead of a validation failure per field. */
-const SCHEMA_VERSION = 1;
+/** v1 stored a single bare LayoutState; v2 stores a list of named workspaces
+ * plus which one is active. A v1 payload is migrated rather than dropped (see
+ * parseEnvelope) - a schema bump must never be the reason someone loses the
+ * tabs they had open. Bump this only for a change that genuinely can't be
+ * migrated; anything unrecognised falls back to one empty workspace. */
+const SCHEMA_VERSION = 2;
+
+export const DEFAULT_WORKSPACE_NAME = "Layout 1";
+
+export interface WorkspacesState {
+  activeId: string;
+  workspaces: Workspace[];
+}
 
 const TAIL_VALUES: readonly TailLines[] = [500, 5000, "all"];
 const VIEW_MODES: readonly PaneViewMode[] = ["tabs", "merged"];
@@ -56,6 +65,39 @@ function parseTab(raw: unknown): TabState | null {
     streamEpoch: typeof streamEpoch === "number" && Number.isFinite(streamEpoch) ? streamEpoch : 0,
     lastKnownState: typeof lastKnownState === "string" ? lastKnownState : undefined,
   };
+}
+
+/** Divider positions are cosmetic, so a bad entry is dropped on its own
+ * rather than taking the whole workspace with it - the grid just falls back
+ * to an even split. Lengths are re-checked against the layout's real row/
+ * column counts because Allotment ignores a mismatched `defaultSizes`
+ * outright (it only warns), which would look like the sizes were forgotten. */
+function parseSizes(raw: unknown, layout: PaneLayout): PaneSizes | null {
+  if (!isRecord(raw)) return null;
+  const { rows, cols } = GRID_DIMS[layout];
+  const isSizeArray = (v: unknown, want: number): v is number[] =>
+    Array.isArray(v) && v.length === want && v.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0);
+
+  const parsedRows = isSizeArray(raw.rows, rows) ? raw.rows : [];
+  const parsedCols: number[][] = [];
+  if (Array.isArray(raw.cols)) {
+    for (const entry of raw.cols.slice(0, rows)) {
+      parsedCols.push(isSizeArray(entry, cols) ? entry : []);
+    }
+  }
+  if (parsedRows.length === 0 && parsedCols.every((c) => c.length === 0)) return null;
+  return { rows: parsedRows, cols: parsedCols };
+}
+
+function parseAllSizes(raw: unknown): LayoutState["sizes"] {
+  if (!isRecord(raw)) return undefined;
+  const out: Partial<Record<PaneLayout, PaneSizes>> = {};
+  for (const [layout, value] of Object.entries(raw)) {
+    if (!(layout in GRID_DIMS)) continue;
+    const parsed = parseSizes(value, layout as PaneLayout);
+    if (parsed) out[layout as PaneLayout] = parsed;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function parsePane(raw: unknown): PaneState | null {
@@ -117,32 +159,87 @@ function parseLayoutState(raw: unknown): LayoutState | null {
     panes: parsedPanes,
     focusedPaneId:
       typeof focusedPaneId === "string" && paneIds.has(focusedPaneId) ? focusedPaneId : parsedPanes[0].id,
+    sizes: parseAllSizes(raw.sizes),
   };
 }
 
-/** The persisted workspace, or a fresh default one if there isn't a valid
- * saved one. Safe to call as a `useReducer` lazy initializer. */
-export function restoreLayoutState(): LayoutState {
+let workspaceCounter = 0;
+function newWorkspaceId(): string {
+  workspaceCounter += 1;
+  return `ws-${Date.now()}-${workspaceCounter}`;
+}
+
+export function makeWorkspace(name: string, state: LayoutState): Workspace {
+  return { id: newWorkspaceId(), name, state };
+}
+
+function defaultWorkspaces(): WorkspacesState {
+  const only = makeWorkspace(DEFAULT_WORKSPACE_NAME, initialLayoutState());
+  return { activeId: only.id, workspaces: [only] };
+}
+
+function parseWorkspace(raw: unknown): Workspace | null {
+  if (!isRecord(raw)) return null;
+  const { id, name, state } = raw;
+  if (typeof id !== "string" || typeof name !== "string") return null;
+  const parsed = parseLayoutState(state);
+  if (!parsed) return null;
+  return { id, name, state: parsed };
+}
+
+function parseEnvelope(envelope: Record<string, unknown>): WorkspacesState | null {
+  // v1: one bare LayoutState, no names. Migrate it into the first workspace
+  // so upgrading doesn't wipe the tabs someone had open.
+  if (envelope.version === 1) {
+    const migrated = parseLayoutState(envelope.state);
+    if (!migrated) return null;
+    const only = makeWorkspace(DEFAULT_WORKSPACE_NAME, migrated);
+    return { activeId: only.id, workspaces: [only] };
+  }
+  if (envelope.version !== SCHEMA_VERSION || !Array.isArray(envelope.workspaces)) return null;
+
+  const workspaces: Workspace[] = [];
+  for (const raw of envelope.workspaces) {
+    const parsed = parseWorkspace(raw);
+    if (!parsed) return null;
+    workspaces.push(parsed);
+  }
+  if (workspaces.length === 0) return null;
+  // Duplicate ids would break switching/renaming (both address by id) and
+  // collide as React keys.
+  if (new Set(workspaces.map((w) => w.id)).size !== workspaces.length) return null;
+
+  const { activeId } = envelope;
+  return {
+    activeId: typeof activeId === "string" && workspaces.some((w) => w.id === activeId) ? activeId : workspaces[0].id,
+    workspaces,
+  };
+}
+
+/** Every saved workspace plus which one is active, or a single fresh
+ * workspace if there's nothing valid on disk. Safe to call during render as a
+ * lazy initializer. */
+export function restoreWorkspaces(): WorkspacesState {
   let raw: string | null = null;
   try {
     raw = localStorage.getItem(STORAGE_KEY);
   } catch {
-    return initialLayoutState();
+    return defaultWorkspaces();
   }
-  if (!raw) return initialLayoutState();
+  if (!raw) return defaultWorkspaces();
 
   try {
     const envelope: unknown = JSON.parse(raw);
-    if (!isRecord(envelope) || envelope.version !== SCHEMA_VERSION) return initialLayoutState();
-    return parseLayoutState(envelope.state) ?? initialLayoutState();
+    if (!isRecord(envelope)) return defaultWorkspaces();
+    return parseEnvelope(envelope) ?? defaultWorkspaces();
   } catch {
-    return initialLayoutState();
+    return defaultWorkspaces();
   }
 }
 
-export function persistLayoutState(state: LayoutState): void {
+export function persistWorkspaces(data: WorkspacesState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: SCHEMA_VERSION, state }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: SCHEMA_VERSION, ...data }));
   } catch {
     // Best-effort only - a full quota or a locked-down storage policy should
     // cost the user their restored workspace, not their working panel.

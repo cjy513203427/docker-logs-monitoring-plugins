@@ -131,6 +131,8 @@ export function ContainerPicker({ focusedPaneId, dispatch }: ContainerPickerProp
           <SearchIcon fontSize="small" sx={{ opacity: 0.6 }} />
           <InputBase
             placeholder="Filter containers"
+
+            
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             sx={{ ml: 0.5, fontSize: 13, width: "100%" }}
