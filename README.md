@@ -65,11 +65,15 @@ selected workspace as they happen.
 Everything survives leaving the extension tab and coming back, which
 Docker Desktop otherwise treats as a full teardown of the UI.
 
+![The saved-layouts dropdown listing three workspaces, with create, duplicate, rename and delete](docs/screenshots/workspaces.png)
+
 ### Search within a pane
 
 **Ctrl+F** opens "Find in log". Every match is highlighted, not just the
 current one, with a `current/total` counter and prev/next buttons; matches
 outside the viewport show up as marks on the scrollbar. Escape clears it.
+
+![Find in log with every match highlighted, a 1/14 counter, and scrollbar marks for off-screen matches](docs/screenshots/search.png)
 
 ### Per-tab history control
 
@@ -77,12 +81,16 @@ Click the "last 500" chip in a tab's toolbar (or right-click the tab) to
 switch between the last 500 lines, last 5,000, or full history. Timestamps
 toggle per tab too.
 
+![The tail-length menu offering last 500 lines, last 5,000 lines and full history](docs/screenshots/tail-menu.png)
+
 ### Terminal color theme
 
 Palette icon in the top bar — Classic (xterm default), Soft Dark, or
 Solarized Dark, switchable live without disrupting an active log stream.
 Display-only, same as picking a color scheme in any real terminal — it
 never touches the raw log bytes.
+
+![The terminal colour theme menu open over a running log stream](docs/screenshots/theme-picker.png)
 
 ### Keyboard shortcuts, and the Tips dialog
 
