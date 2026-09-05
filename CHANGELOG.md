@@ -4,6 +4,47 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); this project
 doesn't (yet) follow strict semantic versioning guarantees - it's pre-1.0.
 
+## [0.4.0]
+
+### Added
+- **Saved layouts** (dropdown next to the title): each one is a whole
+  arrangement - the grid, where the dividers sit, and which containers are
+  open in which pane - so a two-pane "api + database" setup and a 3x3
+  "everything" setup can both exist and be switched between instead of
+  rebuilt by hand. Create empty, duplicate the current one, rename, delete.
+  There is deliberately no Save button: edits go into the selected layout
+  as they happen.
+- **Divider positions are remembered**, keyed per grid shape so 2x2's
+  proportions don't leak into 2h's. Stored as the ratios they are, so a
+  split saved on a wide monitor comes back correct on a narrow one
+  (verified at 900/1400/1920px).
+- **Search highlights every match**, not just the current one, with a
+  `current/total` counter and prev/next buttons next to the "Find in log"
+  box; matches outside the viewport show as marks on the scrollbar.
+  Escape clears the search.
+
+### Fixed
+- **Everything reset to zero when leaving the extension tab and coming
+  back.** Docker Desktop destroys and rebuilds the extension UI on every
+  navigation away, so all open tabs and the layout were lost. The whole
+  workspace now persists to `localStorage` and is restored on mount;
+  anything that fails validation is discarded in favour of a clean state
+  rather than risking a blank panel.
+- **Search silently highlighted nothing.** xterm.js draws match highlights
+  with `registerDecoration()`, a *proposed* API that throws unless the
+  terminal is constructed with `allowProposedApi: true` - and the throw
+  lands inside the keystroke handler, so there was no visible error
+  anywhere, just a search box that found nothing.
+- **Restored tabs would have had their log streams killed a moment after
+  opening.** React runs child effects before the parent's, so restored
+  tabs register their `docker logs -f` processes *before* the startup
+  orphan sweep runs, making them indistinguishable from leftovers of a
+  crashed session (the host binary can only match on container id). The
+  sweep is now told which containers are already open and skips them.
+- `make update` destroyed the image it had just built: `docker extension
+  rm` also deletes the extension's image from the local daemon, so the
+  build had to move *after* the removal, not before.
+
 ## [0.3.0]
 
 ### Fixed
