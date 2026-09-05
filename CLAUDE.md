@@ -31,6 +31,13 @@ make remove       # docker extension rm
 make validate     # docker build + docker extension validate
 ```
 
+Release-only (see `push_workflow/PUBLISHING.md` for the full checklist):
+
+```sh
+make publish       # buildx multi-arch (amd64+arm64) build, pushed to cjy513203427/docker-logs-console
+make validate-hub  # docker extension validate against that pushed image
+```
+
 Hot-reload development loop:
 
 ```sh
@@ -400,3 +407,29 @@ touching it.
   which reliably forces a fresh navigation - reinstalling via
   `docker extension update` does not reliably do this on its own for a
   panel that's already open).
+- **A plain `docker build` release is uninstallable on Apple Silicon, and
+  `make validate` can never tell you so.** `docker extension validate` runs
+  four checks - image labels, `metadata.json` against the schema, tag is
+  semver, and *image is multiplatform* - and Docker Desktop refuses to
+  install an extension whose image has no manifest entry for the user's
+  architecture. `make validate` builds the single-arch `local/...` image, so
+  it fails that last check by construction every time ("Use
+  `--platform=linux/amd64,linux/arm64` when pushing your image to
+  DockerHub"), which trains you to ignore it - and 0.4.0 duly went to Docker
+  Hub as a bare single-platform manifest (confirmed with `docker buildx
+  imagetools inspect`: no platform list at all). Releases go through `make
+  publish` (buildx, both platforms, straight to the registry - multi-platform
+  results can't be `--load`ed into the classic image store, so `docker tag`
+  of the local build is not a substitute), and the verdict that counts comes
+  from `make validate-hub` against the pushed image.
+- **The Marketplace-required labels live in the `Dockerfile`, and one of
+  them is per-release.** Nine labels are required (title, description,
+  vendor, extension api version, icon, screenshots, detailed-description,
+  publisher-url, changelog); `validate`'s "Checked image labels" is what
+  enforces them. `com.docker.extension.changelog` documents the *current
+  version only* and is shown to users in Desktop's extension detail pane, so
+  it's a fourth thing to bump on every release alongside `TAG`,
+  `ui/package.json` and `CHANGELOG.md`. The icon/screenshot labels are URLs
+  into `raw.githubusercontent.com` on `main`, so a release isn't complete
+  until `main` is pushed, and renaming anything under `docs/screenshots/`
+  silently breaks an already-published listing.

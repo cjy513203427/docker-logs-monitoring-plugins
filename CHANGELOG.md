@@ -4,6 +4,31 @@ All notable changes to this project are documented here. Format loosely
 follows [Keep a Changelog](https://keepachangelog.com/); this project
 doesn't (yet) follow strict semantic versioning guarantees - it's pre-1.0.
 
+## [0.4.1]
+
+Packaging only - no functional changes to the extension itself.
+
+### Fixed
+- **The published image was amd64-only, so it could not be installed on
+  Apple Silicon at all.** Docker Desktop refuses to install an extension
+  whose image has no manifest entry for the user's architecture, and
+  releases up to 0.4.0 were built with a plain `docker build` on an amd64
+  machine - a single-platform manifest. Releases now go out through
+  `make publish` (buildx, `linux/amd64,linux/arm64`, pushed straight to the
+  registry). `docker extension validate` had been reporting this all along;
+  it fails by construction against a local build, which made it easy to
+  ignore.
+
+### Added
+- The full set of image labels Docker requires of a Marketplace extension
+  (icon, screenshots, detailed description, publisher URL, changelog), so
+  `docker extension validate` passes cleanly against the pushed image.
+  Submission itself is blocked for now - Docker has paused new public
+  Marketplace submissions while it reviews Marketplace security - but
+  nothing on this side is in the way.
+- `make publish` and `make validate-hub`; the release checklist in
+  `push_workflow/PUBLISHING.md` is updated to match.
+
 ## [0.4.0]
 
 ### Added

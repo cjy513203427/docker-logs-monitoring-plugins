@@ -51,19 +51,32 @@ extension, but differs from both in two load-bearing ways:
 
   ![Tips dialog](docs/screenshots/tips.png)
 
+## Install
+
+```sh
+docker extension install cjy513203427/docker-logs-console:latest
+```
+
+Then open Docker Desktop and select **Logs Console** from the left sidebar.
+
+This is not in the Extensions Marketplace — Docker has
+[paused new Marketplace submissions](https://github.com/docker/extensions-submissions)
+while it reviews Marketplace security — so it has to be installed by image
+reference. That's the same command the Marketplace's Install button runs
+underneath; the only thing you miss is browsing to it in Docker Desktop's
+Extensions UI.
+
 ## Requirements
 
 - Docker Desktop with the `docker extension` CLI (already installed with
   recent Docker Desktop releases).
-- Node.js 18+ for building the UI.
+- Node.js 18+ only if you want to build the UI yourself.
 
-## Build & install
+## Build & install from source
 
 ```sh
 make install     # builds the image and installs it into Docker Desktop
 ```
-
-Then open Docker Desktop and select **Logs Console** from the left sidebar.
 
 ## Development (hot reload)
 
